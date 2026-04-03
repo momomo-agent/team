@@ -156,27 +156,22 @@ function getMilestones() {
 }
 
 function getAllGaps() {
-  const gapsDir = path.join(projectDir, '.team/gaps');
+  const monitorDir = path.join(projectDir, '.team/monitor');
+  const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
   const result = {};
 
-  for (const name of ['vision', 'prd', 'dbb', 'architecture']) {
-    const data = readJSON(path.join(gapsDir, `${name}.json`));
-    if (data) {
-      // Normalize: agent may write 'coverage' instead of 'match'
-      if (data.match == null && data.coverage != null) data.match = data.coverage;
-      result[name] = data;
-    }
-  }
-
-  const msGapsDir = path.join(gapsDir, 'milestones');
-  if (fs.existsSync(msGapsDir)) {
-    result.milestones = {};
-    try {
-      for (const f of fs.readdirSync(msGapsDir).filter(f => f.endsWith('.json'))) {
-        const data = readJSON(path.join(msGapsDir, f));
-        if (data) result.milestones[f.replace('.json', '')] = data;
+  // Read monitor outputs from config
+  if (config.docs && config.docs.items) {
+    config.docs.items.forEach(function(doc) {
+      if (doc.monitor && doc.monitor.output) {
+        const data = readJSON(path.join(projectDir, doc.monitor.output));
+        if (data) {
+          // Normalize: support both 'match' and 'score'
+          if (data.match == null && data.score != null) data.match = data.score;
+          result[doc.id] = data;
+        }
       }
-    } catch {}
+    });
   }
 
   return result;
@@ -222,7 +217,12 @@ const server = http.createServer((req, res) => {
 
   // --- API Routes ---
 
-  if (pathname === '/status') {
+  if (pathname === '/api/config') {
+    const configPath = path.join(projectDir, '.team/config.json');
+    const config = readJSON(configPath) || {};
+    sendJSON(config);
+  }
+  else if (pathname === '/status') {
     const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
     const running = isDaemonRunning();
     const agents = getAgents();
@@ -284,6 +284,30 @@ const server = http.createServer((req, res) => {
       total,
       completion: total > 0 ? Math.round(((filteredKanban.done || []).length / total) * 100) : 0
     });
+  }
+  else if (pathname.startsWith('/doc/')) {
+    const docId = pathname.replace('/doc/', '');
+    const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
+    const doc = config.docs && config.docs.items ? config.docs.items.find(function(d) { return d.id === docId; }) : null;
+    
+    if (!doc) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: 'Doc not found' }));
+      return;
+    }
+    
+    const docPath = path.join(projectDir, config.docs.root || '.team/docs', doc.file);
+    const data = parseMarkdown(docPath);
+    
+    if (doc.monitor && doc.monitor.output) {
+      const monitorData = readJSON(path.join(projectDir, doc.monitor.output));
+      if (monitorData) {
+        data.match = monitorData.match || monitorData.score || 0;
+        data.gaps = monitorData.gaps || [];
+      }
+    }
+    
+    sendJSON(data);
   }
   else if (pathname === '/vision') {
     const data = parseMarkdown(path.join(projectDir, 'VISION.md'));

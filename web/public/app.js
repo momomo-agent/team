@@ -7,6 +7,38 @@ var activeMobileTab = 'pipeline';
 var cachedMilestones = [];
 var cachedGaps = {};
 var expandedStages = {};
+var teamConfig = null;
+
+// --- Load Config and Initialize Tabs ---
+fetch('/api/config').then(function(r) { return r.json(); }).then(function(config) {
+  teamConfig = config;
+  if (config.docs && config.docs.items) {
+    initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
+  }
+}).catch(function() {});
+
+function initializeTabs(docs) {
+  var tabBar = document.getElementById('tab-bar');
+  var paper = tabBar.nextElementSibling;
+  tabBar.innerHTML = '';
+  paper.innerHTML = '';
+  
+  docs.forEach(function(doc, i) {
+    var tab = document.createElement('div');
+    tab.className = 'folder-tab' + (i === 0 ? ' active' : '');
+    tab.dataset.tab = doc.id;
+    tab.innerHTML = doc.name + ' <span class="tab-match" id="tab-match-' + doc.id + '">—</span>';
+    tabBar.appendChild(tab);
+    
+    var pane = document.createElement('div');
+    pane.className = 'tab-pane' + (i === 0 ? ' active' : '');
+    pane.id = 'pane-' + doc.id;
+    paper.appendChild(pane);
+  });
+  
+  if (docs.length > 0) activeTab = docs[0].id;
+}
+
 
 // --- Left Tab Switching ---
 document.getElementById('tab-bar').addEventListener('click', function(e) {
@@ -70,27 +102,30 @@ function syncMobilePane() {
 // --- Data Loading ---
 async function refresh() {
   try {
+    // Build dynamic doc fetches
+    var docFetches = [];
+    if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+      teamConfig.docs.items.forEach(function(doc) {
+        if (doc.showInUI) {
+          docFetches.push(fetch('/doc/' + doc.id).then(function(r) { return r.json(); }).catch(function() { return {}; }));
+        }
+      });
+    }
+    
     var results = await Promise.all([
       fetch('/status').then(function(r) { return r.json(); }),
       fetch('/gaps').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-      fetch('/vision').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-      fetch('/architecture').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/milestones').then(function(r) { return r.json(); }).catch(function() { return { milestones: [] }; }),
       fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-      fetch('/prd').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-      fetch('/dbb').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/pipeline').then(function(r) { return r.json(); }).catch(function() { return { stages: [] }; })
-    ]);
+    ].concat(docFetches));
 
     var status = results[0];
     var gaps = results[1];
-    var vision = results[2];
-    var arch = results[3];
-    var msData = results[4];
-    var agents = results[5];
-    var prd = results[6];
-    var dbb = results[7];
-    var pipeline = results[8];
+    var msData = results[2];
+    var agents = results[3];
+    var pipeline = results[4];
+    var docs = results.slice(5); // All doc results
 
     var milestones = msData.milestones || [];
     cachedMilestones = milestones;
@@ -109,10 +144,15 @@ async function refresh() {
 
     renderTopBar(status, agents);
     updateTabMatches(status, gaps);
-    renderVision(vision, gaps);
-    renderPRD(prd, gaps);
-    renderDBB(dbb, gaps);
-    renderArchitecture(arch, gaps);
+    // Render docs dynamically
+    if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+      teamConfig.docs.items.forEach(function(docConfig, i) {
+        if (docConfig.showInUI && docs[i]) {
+          renderDoc(docConfig.id, docs[i], gaps);
+        }
+      });
+    }
+
     renderPipeline(pipeline);
     renderKanban(kanban, milestones);
     renderMilestones(milestones);
@@ -425,6 +465,35 @@ function renderMilestones(milestones) {
 }
 
 // ====== LEFT PANES ======
+function renderDoc(docId, docData, gaps) {
+  var match = docData.match || 0;
+  var gapsList = docData.gaps || [];
+  
+  // Fallback to gaps object if not in docData
+  if (gaps && gaps[docId]) {
+    match = gaps[docId].match || gaps[docId].score || match;
+    gapsList = gaps[docId].gaps || gapsList;
+  }
+  
+  var docConfig = teamConfig && teamConfig.docs && teamConfig.docs.items ? 
+    teamConfig.docs.items.find(function(d) { return d.id === docId; }) : null;
+  var docName = docConfig ? docConfig.name : docId;
+  
+  var html = renderMatchDisplay(docName + ' Match', match);
+  html += renderGapsList(gapsList);
+  if (docData.content) html += '<div class="md-content">' + marked.parse(docData.content) + '</div>';
+  
+  var pane = document.getElementById('pane-' + docId);
+  if (pane) pane.innerHTML = html;
+  
+  // Update tab badge
+  var badge = document.getElementById('tab-match-' + docId);
+  if (badge) {
+    badge.textContent = match + '%';
+    badge.className = 'tab-match ' + (match >= 80 ? 'green' : match >= 50 ? 'yellow' : 'red');
+  }
+}
+
 function renderVision(vision, gaps) {
   var match = 0, gapsList = [];
   if (gaps && gaps.vision) { match = gaps.vision.match || gaps.vision.coverage || 0; gapsList = gaps.vision.gaps || []; }

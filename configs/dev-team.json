@@ -1,0 +1,129 @@
+{
+  "docs": {
+    "root": ".team/docs",
+    "items": [
+      {
+        "id": "vision",
+        "name": "Vision",
+        "file": "vision.md",
+        "monitor": {
+          "agent": "vision_monitor",
+          "output": ".team/monitor/vision.json"
+        },
+        "showInUI": true
+      },
+      {
+        "id": "prd",
+        "name": "PRD",
+        "file": "prd.md",
+        "monitor": {
+          "agent": "prd_monitor",
+          "output": ".team/monitor/prd.json"
+        },
+        "showInUI": true
+      },
+      {
+        "id": "dbb",
+        "name": "DBB",
+        "file": "dbb.md",
+        "monitor": {
+          "agent": "dbb_monitor",
+          "output": ".team/monitor/dbb.json"
+        },
+        "showInUI": true
+      },
+      {
+        "id": "arch",
+        "name": "Architecture",
+        "file": "architecture.md",
+        "monitor": {
+          "agent": "arch_monitor",
+          "output": ".team/monitor/arch.json"
+        },
+        "showInUI": true
+      }
+    ]
+  },
+  "agents": {
+    "architect": {
+      "prompt": { "type": "file", "path": "prompts/architect.md" },
+      "frequency": "once",
+      "write": [".team/docs/architecture.md", ".team/change-requests/"],
+      "read": [".team/docs/vision.md", ".team/docs/prd.md", ".team/docs/dbb.md"]
+    },
+    "vision_monitor": {
+      "prompt": { "type": "file", "path": "prompts/vision_monitor.md" },
+      "frequency": "milestone",
+      "write": [".team/monitor/vision.json", ".team/milestones/*/review/"],
+      "read": [".team/docs/vision.md", "src/", ".team/docs/architecture.md"]
+    },
+    "prd_monitor": {
+      "prompt": { "type": "file", "path": "prompts/prd_monitor.md" },
+      "frequency": "milestone",
+      "write": [".team/monitor/prd.json", ".team/milestones/*/review/"],
+      "read": [".team/docs/prd.md", ".team/docs/dbb.md", "src/", ".team/docs/architecture.md"]
+    },
+    "dbb_monitor": {
+      "prompt": { "type": "file", "path": "prompts/dbb_monitor.md" },
+      "frequency": "milestone",
+      "write": [".team/monitor/dbb.json", ".team/milestones/*/review/"],
+      "read": [".team/docs/dbb.md", ".team/milestones/*/dbb.md", "src/"]
+    },
+    "arch_monitor": {
+      "prompt": { "type": "file", "path": "prompts/arch_monitor.md" },
+      "frequency": "milestone",
+      "write": [".team/monitor/arch.json", ".team/milestones/*/review/"],
+      "read": [".team/docs/architecture.md", "src/"]
+    },
+    "pm": {
+      "prompt": { "type": "file", "path": "prompts/pm.md" },
+      "frequency": "per-loop",
+      "write": [".team/milestones/milestones.json", ".team/milestones/*/overview.md", ".team/kanban.json", ".team/tasks/*/task.json", ".team/change-requests/"],
+      "read": [".team/docs/architecture.md", ".team/monitor/", ".team/milestones/", ".team/tasks/"]
+    },
+    "tech_lead": {
+      "prompt": { "type": "file", "path": "prompts/tech_lead.md" },
+      "frequency": "per-loop",
+      "write": [".team/milestones/*/dbb.md", ".team/milestones/*/design.md", ".team/tasks/*/design.md", ".team/tasks/*/task.json", ".team/change-requests/"],
+      "read": [".team/docs/architecture.md", ".team/milestones/", ".team/tasks/", ".team/kanban.json"]
+    },
+    "developer": {
+      "prompt": { "type": "file", "path": "prompts/developer.md" },
+      "frequency": "per-loop",
+      "scalable": true,
+      "write": ["src/", "lib/", "test/", ".team/tasks/*/progress.md", ".team/tasks/*/task.json", ".team/change-requests/"],
+      "read": [".team/tasks/*/design.md", ".team/tasks/*/task.json", ".team/kanban.json", ".team/docs/architecture.md"]
+    },
+    "tester": {
+      "prompt": { "type": "file", "path": "prompts/tester.md" },
+      "frequency": "per-loop",
+      "scalable": true,
+      "write": ["test/", ".team/tasks/*/test-result.md", ".team/tasks/*/task.json", ".team/monitor/test-coverage.json", ".team/change-requests/"],
+      "read": [".team/milestones/*/dbb.md", ".team/tasks/*/design.md", ".team/kanban.json"]
+    }
+  },
+  "workflow": {
+    "startup": [
+      { "agents": ["architect"], "parallel": false, "condition": "no-architecture" },
+      { "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"], "parallel": true },
+      { "agents": ["pm"], "parallel": false }
+    ],
+    "loop": {
+      "parallel": ["tech_lead", "developer", "tester"],
+      "then": ["pm"]
+    },
+    "milestoneCheck": {
+      "parallel": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
+      "then": ["pm"]
+    }
+  },
+  "git": {
+    "commitPerTask": true,
+    "tagPerMilestone": true
+  },
+  "notify": {
+    "openclaw": { "sessionKey": "" },
+    "webhooks": [],
+    "macos": true
+  }
+}

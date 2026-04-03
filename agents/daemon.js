@@ -19,7 +19,7 @@ const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
 const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
 const RUNNER = path.join(__dirname, 'runner.js');
 const DEVTEAM_ROOT = path.join(__dirname, '..');
-const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs/default.json');
+const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs/dev-team.json');
 const MAX_HISTORY_ENTRIES = 500;
 
 class TeamDaemon {

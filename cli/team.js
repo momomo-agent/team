@@ -92,11 +92,11 @@ function init(dirName) {
     process.exit(1);
   }
 
-  // Create full directory structure from DESIGN.md
+  // Create full directory structure
   const dirs = [
     '.team',
-    '.team/gaps',
-    '.team/gaps/milestones',
+    '.team/docs',
+    '.team/monitor',
     '.team/change-requests',
     '.team/milestones',
     '.team/tasks',
@@ -108,7 +108,7 @@ function init(dirName) {
   }
 
   // Load default config and merge with project-specific fields
-  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs/default.json');
+  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs/dev-team.json');
   let defaultConfig = {};
   try { defaultConfig = JSON.parse(fs.readFileSync(defaultConfigPath, 'utf8')); } catch {}
 
@@ -126,24 +126,23 @@ function init(dirName) {
   // Create milestones index
   fs.writeFileSync(path.join(projectDir, '.team/milestones/milestones.json'), JSON.stringify({ milestones: [] }, null, 2));
 
-  // Create template files if they don't exist
-  const templates = {
-    'VISION.md': '# Vision\n\n## Why\n\n## Problem\n\n## End State\n\n',
-    'PRD.md': '# Product Requirements\n\n## Features\n\n## User Stories\n\n',
-    'EXPECTED_DBB.md': '# Expected DBB (验收标准)\n\n## Core Flows\n\n## Quality Gates\n\n',
-    'ARCHITECTURE.md': '# Architecture\n\n'
-  };
-
-  for (const [file, content] of Object.entries(templates)) {
-    const fp = path.join(projectDir, file);
-    if (!fs.existsSync(fp)) {
-      fs.writeFileSync(fp, content);
-    }
+  // Create template docs from config
+  const docsRoot = config.docs && config.docs.root ? config.docs.root : '.team/docs';
+  const docsDir = path.join(projectDir, docsRoot);
+  
+  if (config.docs && config.docs.items) {
+    config.docs.items.forEach(function(doc) {
+      const docPath = path.join(docsDir, doc.file);
+      if (!fs.existsSync(docPath)) {
+        const defaultContent = `# ${doc.name}\n\n`;
+        fs.writeFileSync(docPath, defaultContent);
+      }
+    });
   }
 
   console.log(`Project initialized: ${projectDir}`);
   console.log(`  cd ${dirName}`);
-  console.log(`  # Edit VISION.md, PRD.md, EXPECTED_DBB.md`);
+  console.log(`  # Edit docs in ${docsRoot}/`);
   console.log(`  team start`);
 }
 
