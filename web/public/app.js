@@ -165,19 +165,21 @@ if (mobileTabBar) {
 function syncMobilePane() {
   var mp = document.getElementById('mobile-paper');
   if (!mp) return;
-  // Map mobile tab to the corresponding desktop pane content
+  
   var rightPanes = dashboardTabs.length > 0 
     ? dashboardTabs.map(function(t) { return t.id; })
     : ['pipeline', 'kanban', 'milestones'];
   var leftPanes = ['vision', 'prd', 'dbb', 'arch'];
 
+  var src = null;
   if (rightPanes.indexOf(activeMobileTab) !== -1) {
-    var src = document.getElementById('rpane-' + activeMobileTab);
-    mp.innerHTML = src ? src.innerHTML : '';
+    src = document.getElementById('rpane-' + activeMobileTab);
   } else if (leftPanes.indexOf(activeMobileTab) !== -1) {
-    var src = document.getElementById('pane-' + activeMobileTab);
-    mp.innerHTML = src ? src.innerHTML : '';
+    src = document.getElementById('pane-' + activeMobileTab);
   }
+  
+  // 直接复制 innerHTML（refresh 每 5 秒会重新同步）
+  mp.innerHTML = src ? src.innerHTML : '';
 }
 
 // --- Data Loading ---
