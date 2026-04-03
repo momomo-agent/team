@@ -2,7 +2,6 @@
   "version": "3.0",
   "name": "dev-team",
   "description": "AI 开发团队 - 有向图 workflow",
-  
   "workflow": {
     "entry": "startup",
     "nodes": {
@@ -12,7 +11,6 @@
       "standby": "nodes/standby.json"
     }
   },
-  
   "agents": {
     "architect": {
       "prompt": "prompts/architect.md",
@@ -53,32 +51,85 @@
       "scalable": true
     }
   },
-  
   "docs": {
     "root": ".team/docs",
     "items": [
-      { "path": "VISION.md", "title": "愿景" },
-      { "path": "PRD.md", "title": "产品需求" },
-      { "path": "EXPECTED_DBB.md", "title": "预期验收" },
-      { "path": "ARCHITECTURE.md", "title": "技术架构" },
-      { "path": ".team/gaps", "title": "Gaps" },
-      { "path": ".team/milestones", "title": "里程碑" },
-      { "path": ".team/tasks", "title": "任务" }
+      {
+        "path": "VISION.md",
+        "title": "愿景"
+      },
+      {
+        "path": "PRD.md",
+        "title": "产品需求"
+      },
+      {
+        "path": "EXPECTED_DBB.md",
+        "title": "预期验收"
+      },
+      {
+        "path": "ARCHITECTURE.md",
+        "title": "技术架构"
+      },
+      {
+        "path": ".team/gaps",
+        "title": "Gaps"
+      },
+      {
+        "path": ".team/milestones",
+        "title": "里程碑"
+      },
+      {
+        "path": ".team/tasks",
+        "title": "任务"
+      }
     ]
   },
-  
   "monitor": {
     "root": ".team/monitor",
-    "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"]
+    "agents": [
+      "vision_monitor",
+      "prd_monitor",
+      "dbb_monitor",
+      "arch_monitor"
+    ]
   },
-  
   "git": {
     "commitPerTask": true,
     "tagPerMilestone": true
   },
-  
   "notify": {
     "webhooks": [],
     "macos": true
+  },
+  "dashboard": {
+    "tabs": [
+      {
+        "id": "pipeline",
+        "title": "Pipeline",
+        "component": "PipelineView",
+        "dataSource": {
+          "type": "file",
+          "path": ".team/milestones/milestones.json"
+        }
+      },
+      {
+        "id": "kanban",
+        "title": "Kanban",
+        "component": "KanbanView",
+        "dataSource": {
+          "type": "file",
+          "path": ".team/kanban.json"
+        }
+      },
+      {
+        "id": "milestones",
+        "title": "Milestones",
+        "component": "MilestonesView",
+        "dataSource": {
+          "type": "file",
+          "path": ".team/milestones/milestones.json"
+        }
+      }
+    ]
   }
 }

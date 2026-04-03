@@ -8,12 +8,24 @@ var cachedMilestones = [];
 var cachedGaps = {};
 var expandedStages = {};
 var teamConfig = null;
+var dashboardTabs = [];
 
 // --- Load Config and Initialize Tabs ---
 fetch('/api/config').then(function(r) { return r.json(); }).then(function(config) {
   teamConfig = config;
+  
+  // 初始化左侧文档 tabs
   if (config.docs && config.docs.items) {
     initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
+  }
+  
+  // 初始化右侧 dashboard tabs
+  if (config.dashboard && config.dashboard.tabs) {
+    dashboardTabs = config.dashboard.tabs;
+    if (dashboardTabs.length > 0) {
+      activeRightTab = dashboardTabs[0].id;
+      activeMobileTab = dashboardTabs[0].id;
+    }
   }
 }).catch(function() {});
 
@@ -87,7 +99,9 @@ function syncMobilePane() {
   var mp = document.getElementById('mobile-paper');
   if (!mp) return;
   // Map mobile tab to the corresponding desktop pane content
-  var rightPanes = ['pipeline', 'kanban', 'milestones'];
+  var rightPanes = dashboardTabs.length > 0 
+    ? dashboardTabs.map(function(t) { return t.id; })
+    : ['pipeline', 'kanban', 'milestones'];
   var leftPanes = ['vision', 'prd', 'dbb', 'arch'];
 
   if (rightPanes.indexOf(activeMobileTab) !== -1) {
