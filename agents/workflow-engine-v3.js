@@ -304,19 +304,23 @@ class WorkflowEngine {
         idleCount = 0; // 有事件处理，重置空转计数
       }
       
-      // 检查退出条件
-      ctx = this.buildContext(); // 刷新 context
+      // 刷新 context
+      ctx = this.buildContext();
+      
+      // 检查退出条件（必须满足才退出）
       if (this.shouldExitReactive(node, ctx)) {
         this.daemon.log('workflow', this.currentNode, '[REACTIVE] Exit condition met');
         break;
       }
       
-      // 空转检测
+      // 空转检测（只在没有 running agents 时计数）
       if (eventQueue.length === 0 && runningAgents.size === 0) {
         idleCount++;
         if (idleCount >= maxIdle) {
-          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Max idle reached, exiting');
-          break;
+          // 空转但没有满足退出条件，说明在等待新任务
+          // 不退出，继续等待
+          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle, waiting for new tasks...');
+          idleCount = 0; // 重置计数，继续等待
         }
       }
       
