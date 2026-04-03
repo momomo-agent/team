@@ -5,12 +5,12 @@ var activeTab = 'vision';
 
 // --- Tab Switching ---
 document.getElementById('tab-bar').addEventListener('click', function(e) {
-  var tab = e.target.closest('.tab');
+  var tab = e.target.closest('.folder-tab');
   if (!tab) return;
   var tabName = tab.dataset.tab;
   if (!tabName) return;
   activeTab = tabName;
-  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.folder-tab').forEach(function(t) { t.classList.remove('active'); });
   document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
   tab.classList.add('active');
   var pane = document.getElementById('pane-' + tabName);
@@ -283,7 +283,7 @@ function renderMilestones(milestones) {
       var statusLabel = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
       var kanbanMsId = selectedMilestoneId || activeMilestoneId;
       var selectedClass = (m.id === kanbanMsId) ? ' selected' : '';
-      return '<div class="ms-card ' + statusClass + selectedClass + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' +
+      return '<div class="ms-row ' + statusClass + selectedClass + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' +
         '<div class="ms-head">' +
           '<span class="ms-name">' + escapeHtml((m.id ? m.id + ' ' : '') + (m.name || '')) + '</span>' +
           '<span class="ms-status-badge ' + statusLabel + '">' + statusLabel + '</span>' +
@@ -323,12 +323,11 @@ function renderKanban(kanban, milestones) {
   var total = kanban.total || 0;
   var completion = kanban.completion || 0;
 
-  var html = '<div class="kanban-stats">' +
-    '<div class="kanban-stat"><strong>' + total + '</strong>tasks</div>' +
-    '<div class="kanban-stat"><strong>' + completion + '%</strong>complete</div>' +
-  '</div>';
+  // Stats
+  var statsEl = document.getElementById('kanban-stats');
+  statsEl.innerHTML = '<strong>' + total + '</strong> tasks · <strong>' + completion + '%</strong> complete';
 
-  html += '<div class="kanban-grid">';
+  var html = '<div class="kanban-grid">';
   for (var i = 0; i < columns.length; i++) {
     var col = columns[i];
     html += '<div class="kanban-col">' +
@@ -375,22 +374,22 @@ document.getElementById('toggle-daemon').addEventListener('click', function() {
 setInterval(refresh, 5000);
 refresh();
 
-// --- Activity Log (Task 8) ---
-var activityLogCollapsed = true;
+// --- Activity Log ---
+var activityOpen = false;
 
-document.getElementById('activity-log-toggle').addEventListener('click', function() {
-  activityLogCollapsed = !activityLogCollapsed;
-  var content = document.getElementById('activity-log-content');
-  var arrow = document.getElementById('activity-log-arrow');
-  if (activityLogCollapsed) {
-    content.style.display = 'none';
-    arrow.textContent = '\u25B6';
-  } else {
-    content.style.display = 'block';
-    arrow.textContent = '\u25BC';
+function toggleActivity() {
+  activityOpen = !activityOpen;
+  var list = document.getElementById('activity-list');
+  var toggle = document.querySelector('.activity-toggle');
+  if (activityOpen) {
+    list.classList.add('open');
+    toggle.textContent = '▼ Activity Log';
     loadHistory();
+  } else {
+    list.classList.remove('open');
+    toggle.textContent = '▶ Activity Log';
   }
-});
+}
 
 async function loadHistory() {
   try {
@@ -402,45 +401,34 @@ async function loadHistory() {
 }
 
 function renderHistory(history) {
-  var el = document.getElementById('activity-log-content');
+  var el = document.getElementById('activity-list');
   if (!history || history.length === 0) {
-    el.innerHTML = '<div style="color:#666;font-size:11px;padding:8px;">No activity yet</div>';
+    el.innerHTML = '<div style="color:#888;font-size:11px;padding:8px;">No activity yet</div>';
     return;
   }
 
-  // Show last 20 events, newest first
   var recent = history.slice(-20).reverse();
-
-  var html = '<div class="activity-list">';
+  var html = '';
   for (var i = 0; i < recent.length; i++) {
     var entry = recent[i];
-    var eventColor = 'blue';
-    if (entry.event === 'agent_complete' || entry.event === 'milestone_complete') eventColor = 'green';
-    else if (entry.event === 'error') eventColor = 'red';
-    else if (entry.event === 'agent_start') eventColor = 'blue';
-    else if (entry.event === 'cr_created') eventColor = 'yellow';
+    var dotClass = 'start';
+    if (entry.event === 'agent_complete' || entry.event === 'milestone_complete') dotClass = 'complete';
+    else if (entry.event === 'error') dotClass = 'error';
+    else if (entry.event === 'cr_created') dotClass = 'cr';
 
     var timeStr = '';
     if (entry.time) {
       var d = new Date(entry.time);
-      timeStr = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) + ':' + ('0' + d.getSeconds()).slice(-2);
+      timeStr = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
     }
 
-    html += '<div class="activity-entry">' +
+    html += '<div class="activity-item">' +
       '<span class="activity-time">' + escapeHtml(timeStr) + '</span>' +
-      '<span class="activity-event ' + eventColor + '">' + escapeHtml(entry.event || '') + '</span>' +
-      '<span class="activity-agent">' + escapeHtml(entry.agent || '') + '</span>' +
-      '<span class="activity-details">' + escapeHtml(entry.details || '') + '</span>' +
+      '<span class="activity-dot ' + dotClass + '"></span>' +
+      '<span>' + escapeHtml((entry.agent || '') + ' ' + (entry.details || '')) + '</span>' +
     '</div>';
   }
-  html += '</div>';
-
   el.innerHTML = html;
 }
 
-// Auto-refresh history if expanded
-setInterval(function() {
-  if (!activityLogCollapsed) {
-    loadHistory();
-  }
-}, 5000);
+setInterval(function() { if (activityOpen) loadHistory(); }, 5000);
