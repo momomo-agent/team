@@ -1,0 +1,652 @@
+var daemonRunning = false;
+var activeMilestoneId = null;
+var selectedMilestoneId = null;
+var activeTab = 'vision';
+var activeRightTab = 'pipeline';
+var activeMobileTab = 'pipeline';
+var cachedMilestones = [];
+var cachedGaps = {};
+var expandedStages = {};
+var teamConfig = null;
+var dashboardTabs = [];
+
+// --- Load Config and Initialize Tabs ---
+fetch('/api/config').then(function(r) { return r.json(); }).then(function(config) {
+  teamConfig = config;
+  
+  // 统一的 dashboard 配置
+  if (config.dashboard) {
+    // 左侧 tabs
+    if (config.dashboard.left) {
+      var leftTabs = config.dashboard.left.filter(function(t) { return t.showInUI !== false; });
+      initializeTabs(leftTabs);
+    }
+    
+    // 右侧 tabs
+    if (config.dashboard.right) {
+      dashboardTabs = config.dashboard.right;
+      initializeRightTabs(dashboardTabs);
+      if (dashboardTabs.length > 0) {
+        activeRightTab = dashboardTabs[0].id;
+        activeMobileTab = dashboardTabs[0].id;
+      }
+    }
+  }
+  // 兼容旧配置
+  else if (config.docs && config.docs.items) {
+    initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
+  }
+}).catch(function() {});
+
+function initializeTabs(tabs) {
+  var tabBar = document.getElementById('tab-bar');
+  var paper = tabBar.nextElementSibling;
+  tabBar.innerHTML = '';
+  paper.innerHTML = '';
+  
+  tabs.forEach(function(tab, i) {
+    var tabEl = document.createElement('div');
+    tabEl.className = 'folder-tab' + (i === 0 ? ' active' : '');
+    tabEl.dataset.tab = tab.id;
+    tabEl.innerHTML = tab.title + ' <span class="tab-match" id="tab-match-' + tab.id + '">—</span>';
+    tabBar.appendChild(tabEl);
+    
+    var pane = document.createElement('div');
+    pane.className = 'tab-pane' + (i === 0 ? ' active' : '');
+    pane.id = 'pane-' + tab.id;
+    paper.appendChild(pane);
+  });
+  
+  if (tabs.length > 0) activeTab = tabs[0].id;
+}
+
+function initializeRightTabs(tabs) {
+  var tabBar = document.getElementById('right-tab-bar');
+  var paper = tabBar.nextElementSibling;
+  tabBar.innerHTML = '';
+  paper.innerHTML = '';
+  
+  tabs.forEach(function(tab, i) {
+    var rtab = document.createElement('div');
+    rtab.className = 'right-tab' + (i === 0 ? ' active' : '');
+    rtab.dataset.rtab = tab.id;
+    rtab.textContent = tab.title;
+    tabBar.appendChild(rtab);
+    
+    var pane = document.createElement('div');
+    pane.className = 'right-pane' + (i === 0 ? ' active' : '');
+    pane.id = 'rpane-' + tab.id;
+    paper.appendChild(pane);
+  });
+}
+
+
+// --- Left Tab Switching ---
+document.getElementById('tab-bar').addEventListener('click', function(e) {
+  var tab = e.target.closest('.folder-tab');
+  if (!tab) return;
+  var tabName = tab.dataset.tab;
+  if (!tabName) return;
+  activeTab = tabName;
+  document.querySelectorAll('.folder-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+  tab.classList.add('active');
+  var pane = document.getElementById('pane-' + tabName);
+  if (pane) pane.classList.add('active');
+});
+
+// --- Right Tab Switching ---
+document.getElementById('right-tab-bar').addEventListener('click', function(e) {
+  var tab = e.target.closest('.right-tab');
+  if (!tab) return;
+  var tabName = tab.dataset.rtab;
+  if (!tabName) return;
+  activeRightTab = tabName;
+  document.querySelectorAll('.right-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.right-pane').forEach(function(p) { p.classList.remove('active'); });
+  tab.classList.add('active');
+  var pane = document.getElementById('rpane-' + tabName);
+  if (pane) pane.classList.add('active');
+});
+
+// --- Mobile Tab Switching ---
+var mobileTabBar = document.getElementById('mobile-tab-bar');
+if (mobileTabBar) {
+  mobileTabBar.addEventListener('click', function(e) {
+    var tab = e.target.closest('.mobile-tab');
+    if (!tab) return;
+    var tabName = tab.dataset.mtab;
+    if (!tabName) return;
+    activeMobileTab = tabName;
+    document.querySelectorAll('.mobile-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    syncMobilePane();
+  });
+}
+
+function syncMobilePane() {
+  var mp = document.getElementById('mobile-paper');
+  if (!mp) return;
+  // Map mobile tab to the corresponding desktop pane content
+  var rightPanes = dashboardTabs.length > 0 
+    ? dashboardTabs.map(function(t) { return t.id; })
+    : ['pipeline', 'kanban', 'milestones'];
+  var leftPanes = ['vision', 'prd', 'dbb', 'arch'];
+
+  if (rightPanes.indexOf(activeMobileTab) !== -1) {
+    var src = document.getElementById('rpane-' + activeMobileTab);
+    mp.innerHTML = src ? src.innerHTML : '';
+  } else if (leftPanes.indexOf(activeMobileTab) !== -1) {
+    var src = document.getElementById('pane-' + activeMobileTab);
+    mp.innerHTML = src ? src.innerHTML : '';
+  }
+}
+
+// --- Data Loading ---
+async function refresh() {
+  try {
+    // Build dynamic doc fetches
+    var docFetches = [];
+    var docItems = [];
+    
+    // 新配置：dashboard.left
+    if (teamConfig && teamConfig.dashboard && teamConfig.dashboard.left) {
+      docItems = teamConfig.dashboard.left.filter(function(t) { return t.showInUI !== false; });
+    }
+    // 旧配置：docs.items（兼容）
+    else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+      docItems = teamConfig.docs.items.filter(function(d) { return d.showInUI; });
+    }
+    
+    docItems.forEach(function(doc) {
+      docFetches.push(fetch('/doc/' + doc.id).then(function(r) { return r.json(); }).catch(function() { return {}; }));
+    });
+    
+    var results = await Promise.all([
+      fetch('/status').then(function(r) { return r.json(); }),
+      fetch('/gaps').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch('/milestones').then(function(r) { return r.json(); }).catch(function() { return { milestones: [] }; }),
+      fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch('/pipeline').then(function(r) { return r.json(); }).catch(function() { return { stages: [] }; })
+    ].concat(docFetches));
+
+    var status = results[0];
+    var gaps = results[1];
+    var msData = results[2];
+    var agents = results[3];
+    var pipeline = results[4];
+    var docs = results.slice(5); // All doc results
+
+    var milestones = msData.milestones || [];
+    cachedMilestones = milestones;
+    cachedGaps = gaps;
+    var activeMs = milestones.find(function(m) { return m.status === 'active'; });
+    activeMilestoneId = activeMs ? activeMs.id : null;
+
+    var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+    var kanbanUrl = kanbanMsId ? '/kanban?milestone=' + encodeURIComponent(kanbanMsId) : '/kanban';
+    var kanban = await fetch(kanbanUrl).then(function(r) { return r.json(); }).catch(function() {
+      return { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [], total: 0, completion: 0 };
+    });
+
+    // Cache full kanban for client-side filtering
+    window.cachedKanban = kanban;
+
+    renderTopBar(status, agents);
+    updateTabMatches(status, gaps);
+    // Render docs dynamically
+    if (docItems.length > 0) {
+      docItems.forEach(function(docConfig, i) {
+        if (docs[i]) {
+          renderDoc(docConfig.id, docs[i], docConfig);
+        }
+      });
+    }
+          renderDoc(docConfig.id, docs[i], gaps);
+        }
+      });
+    }
+
+    renderPipeline(pipeline);
+    renderKanban(kanban, milestones);
+    renderMilestones(milestones);
+
+    // Sync mobile pane after all renders
+    syncMobilePane();
+  } catch (err) {
+    console.error('Refresh error:', err);
+  }
+}
+
+// --- Top Bar ---
+function renderTopBar(status, agents) {
+  var projectName = (status.project && status.project.name) || 'DevTeam';
+  var running = status.daemon;
+
+  document.getElementById('project-name').textContent = projectName;
+  document.getElementById('page-title').textContent = projectName + ' — ' + (running ? 'Running' : 'Idle');
+
+  var badge = document.getElementById('status-badge');
+  badge.textContent = running ? 'RUNNING' : 'IDLE';
+  badge.className = 'status-badge ' + (running ? 'running' : 'idle');
+
+  daemonRunning = running;
+  document.getElementById('toggle-daemon').textContent = running ? 'Stop' : 'Start';
+
+  var color = running ? '%234ade80' : '%23888';
+  document.getElementById('favicon').href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='" + color + "'/></svg>";
+
+  var entries = Object.entries(agents);
+  var activeCount = entries.filter(function(e) { return e[1].status === 'running'; }).length;
+  var countEl = document.getElementById('agent-count');
+  countEl.textContent = activeCount > 0 ? activeCount + ' agent' + (activeCount > 1 ? 's' : '') + ' active' : entries.length + ' agents';
+}
+
+// --- Tab match badges ---
+function updateTabMatches(status, gaps) {
+  var matchData = status.match || {};
+  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb || 0, arch: matchData.architecture };
+
+  Object.keys(tabs).forEach(function(key) {
+    var val = tabs[key] || 0;
+    var colorClass = val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
+
+    // Desktop tab
+    var el = document.getElementById('tab-match-' + key);
+    if (el) { el.textContent = val + '%'; el.className = 'tab-match ' + colorClass; }
+
+    // Mobile tab
+    var mel = document.getElementById('m-tab-match-' + key);
+    if (mel) { mel.textContent = val + '%'; mel.className = 'tab-match ' + colorClass; }
+  });
+}
+
+// ====== PIPELINE VIEW ======
+function renderPipeline(pipeline) {
+  var el = document.getElementById('rpane-pipeline');
+  var stages = pipeline.stages || [];
+
+  if (stages.length === 0) {
+    el.innerHTML = '<div style="color:#888;font-size:11px;padding:16px;">No pipeline data. Start the daemon to see the workflow.</div>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < stages.length; i++) {
+    var stage = stages[i];
+    var hasActive = stage.liveAgents.some(function(a) { return a.status === 'running'; });
+    var hasError = stage.liveAgents.some(function(a) { return a.status === 'error'; });
+    var hasWaiting = stage.liveAgents.some(function(a) { return a.status === 'retrying'; });
+    var stageClass = hasActive ? 'has-active' : hasError ? 'has-error' : '';
+    var dotClass = hasActive ? 'running' : hasError ? 'error' : hasWaiting ? 'waiting' : 'idle';
+
+    var isExpanded = expandedStages[stage.id] !== false; // default expanded
+
+    html += '<div class="pipeline-stage ' + stageClass + '">';
+    html += '<div class="stage-header" onclick="toggleStage(\'' + stage.id + '\')">';
+    html += '<span class="stage-icon">' + (stage.icon || '⚙️') + '</span>';
+    html += '<span class="stage-name">' + escapeHtml(stage.name) + '</span>';
+    html += '<span class="stage-status-dot ' + dotClass + '"></span>';
+    html += '</div>';
+
+    if (isExpanded) {
+      html += '<div class="stage-body">';
+
+      if (stage.liveAgents.length === 0) {
+        html += '<div class="stage-empty">等待进入此阶段</div>';
+      } else {
+        for (var j = 0; j < stage.liveAgents.length; j++) {
+          var agent = stage.liveAgents[j];
+          var aStatus = agent.status || 'idle';
+          var aClass = aStatus === 'running' ? 'running' : aStatus === 'error' ? 'error' : aStatus === 'retrying' ? 'retrying' : '';
+
+          html += '<div class="pipeline-agent ' + aClass + '">';
+          html += '<span class="pa-dot ' + aStatus + '"></span>';
+          html += '<span class="pa-name">' + escapeHtml(agent.name) + '</span>';
+
+          if (agent.currentTask) {
+            html += '<span class="pa-task">' + escapeHtml(agent.currentTask) + '</span>';
+          }
+
+          if (agent.lastRun) {
+            html += '<span class="pa-time">' + formatTime(agent.lastRun) + '</span>';
+          }
+
+          html += '</div>';
+        }
+      }
+
+      // Recent events
+      if (stage.recentEvents && stage.recentEvents.length > 0) {
+        html += '<div class="stage-events">';
+        var events = stage.recentEvents.slice(-5);
+        for (var k = 0; k < events.length; k++) {
+          var ev = events[k];
+          var evDotClass = ev.event || 'start';
+          html += '<div class="stage-event">';
+          html += '<span class="se-time">' + formatTime(ev.time) + '</span>';
+          html += '<span class="se-dot ' + evDotClass + '"></span>';
+          html += '<span>' + escapeHtml((ev.agent || '') + ' ' + (ev.details || '')) + '</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      html += '</div>'; // stage-body
+    }
+
+    html += '</div>'; // pipeline-stage
+
+    // Connector between stages
+    if (i < stages.length - 1) {
+      html += '<div class="pipeline-connector"></div>';
+    }
+  }
+
+  el.innerHTML = html;
+}
+
+function toggleStage(stageId) {
+  expandedStages[stageId] = expandedStages[stageId] === false ? true : false;
+  // Re-render pipeline from last data (avoid re-fetch)
+  fetch('/pipeline').then(function(r) { return r.json(); }).then(renderPipeline);
+}
+
+// ====== KANBAN VIEW ======
+function renderKanban(kanban, milestones) {
+  var el = document.getElementById('rpane-kanban');
+
+  var taskToMs = {};
+  (milestones || []).forEach(function(m) {
+    (m.tasks || []).forEach(function(tid) { taskToMs[tid] = m; });
+  });
+
+  var columns = [
+    { key: 'todo', label: 'Todo', items: kanban.todo || [] },
+    { key: 'inProgress', label: 'In Progress', items: kanban.inProgress || [] },
+    { key: 'blocked', label: 'Blocked', items: kanban.blocked || [] },
+    { key: 'review', label: 'Review', items: kanban.review || [] },
+    { key: 'testing', label: 'Testing', items: kanban.testing || [] },
+    { key: 'done', label: 'Done', items: kanban.done || [] }
+  ];
+
+  var total = kanban.total || 0;
+  var completion = kanban.completion || 0;
+
+  // Milestone filter
+  var filterHtml = '<div class="ms-filter-bar">';
+  filterHtml += '<span class="ms-filter-chip' + (!selectedMilestoneId ? ' active' : '') + '" onclick="selectMilestone(null)">All</span>';
+  for (var mi = 0; mi < cachedMilestones.length; mi++) {
+    var m = cachedMilestones[mi];
+    var isActive = selectedMilestoneId === m.id;
+    filterHtml += '<span class="ms-filter-chip' + (isActive ? ' active' : '') + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' + escapeHtml(m.id || m.name) + '</span>';
+  }
+  filterHtml += '</div>';
+
+  var html = filterHtml;
+  html += '<div class="kanban-header"><div class="section-label" id="kanban-header-label">Kanban</div>';
+  html += '<div class="kanban-stats"><strong>' + total + '</strong> tasks · <strong>' + completion + '%</strong> complete</div></div>';
+
+  html += '<div class="kanban-grid">';
+  for (var i = 0; i < columns.length; i++) {
+    var col = columns[i];
+    html += '<div class="kanban-col">';
+    html += '<div class="kanban-col-title">' + col.label + ' <span class="kanban-count">' + col.items.length + '</span></div>';
+
+    for (var j = 0; j < col.items.length; j++) {
+      var t = col.items[j];
+      var pc = (t.priority || 'P1').toLowerCase();
+      var ms = taskToMs[t.id];
+      var msLabel = ms ? '<span class="task-ms">' + escapeHtml(ms.id || ms.name || '') + '</span>' : '';
+      var assignee = t.assignee ? '<span class="task-assignee">@' + escapeHtml(t.assignee) + '</span>' : '';
+
+      html += '<div class="task">';
+      html += '<div class="task-title">' + escapeHtml(t.title || t.id) + '</div>';
+      html += '<div class="task-meta">';
+      html += '<span class="priority ' + pc + '">' + escapeHtml(t.priority || 'P1') + '</span>';
+      html += msLabel + assignee;
+      html += '</div></div>';
+    }
+
+    html += '</div>';
+  }
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+function selectMilestone(msId) {
+  selectedMilestoneId = msId;
+  // Don't re-fetch, just re-render with cached data
+  renderMilestones(cachedMilestones);
+  renderKanbanFromCache();
+}
+
+function renderKanbanFromCache() {
+  // Use last fetched kanban data, filter by selected milestone on client side
+  var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+  
+  // If no milestone selected, use full kanban
+  if (!kanbanMsId) {
+    renderKanban(window.cachedKanban || {}, cachedMilestones);
+    return;
+  }
+  
+  // Filter kanban by milestone
+  var milestone = cachedMilestones.find(function(m) { return m.id === kanbanMsId; });
+  if (!milestone || !window.cachedKanban) {
+    renderKanban({}, cachedMilestones);
+    return;
+  }
+  
+  var taskSet = new Set(milestone.tasks || []);
+  var filtered = {};
+  var cols = ['todo', 'inProgress', 'blocked', 'review', 'testing', 'done'];
+  for (var i = 0; i < cols.length; i++) {
+    var col = cols[i];
+    filtered[col] = (window.cachedKanban[col] || []).filter(function(task) {
+      return taskSet.has(task.id);
+    });
+  }
+  
+  var total = 0;
+  for (var i = 0; i < cols.length; i++) {
+    total += filtered[cols[i]].length;
+  }
+  filtered.total = total;
+  filtered.completion = total > 0 ? Math.round((filtered.done.length / total) * 100) : 0;
+  
+  renderKanban(filtered, cachedMilestones);
+}
+
+async function refreshKanban() {
+  var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+  var kanbanUrl = kanbanMsId ? '/kanban?milestone=' + encodeURIComponent(kanbanMsId) : '/kanban';
+  var kanban = await fetch(kanbanUrl).then(function(r) { return r.json(); }).catch(function() {
+    return { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [], total: 0, completion: 0 };
+  });
+  renderKanban(kanban, cachedMilestones);
+}
+
+// ====== MILESTONES VIEW ======
+function renderMilestones(milestones) {
+  var el = document.getElementById('rpane-milestones');
+  if (!milestones || milestones.length === 0) {
+    el.innerHTML = '<div style="color:#666;font-size:11px;padding:8px;">No milestones yet</div>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < milestones.length; i++) {
+    var m = milestones[i];
+    var pct = m.progress || 0;
+    var statusClass = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
+    var statusLabel = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
+
+    html += '<div class="ms-row ' + statusClass + '">';
+    html += '<div class="ms-head">';
+    html += '<span class="ms-name">' + escapeHtml((m.id ? m.id + ' ' : '') + (m.name || '')) + '</span>';
+    html += '<span class="ms-status-badge ' + statusLabel + '">' + statusLabel + '</span>';
+    html += '</div>';
+    html += '<div class="ms-progress">';
+    html += '<div class="ms-bar-bg"><div class="ms-bar-fill" style="width:' + pct + '%"></div></div>';
+    html += '<span class="ms-pct">' + (m.doneCount || 0) + '/' + (m.taskCount || 0) + ' (' + pct + '%)</span>';
+    html += '</div>';
+
+    // Task list under each milestone
+    if (m.taskDetails && m.taskDetails.length > 0) {
+      html += '<div class="ms-tasks">';
+      for (var j = 0; j < m.taskDetails.length; j++) {
+        var task = m.taskDetails[j];
+        var tStatus = task.status || 'todo';
+        var isDone = tStatus === 'done' || tStatus === 'completed';
+        var isInProg = tStatus === 'in-progress' || tStatus === 'inProgress' || tStatus === 'review' || tStatus === 'testing';
+        var dotClass = isDone ? 'done' : isInProg ? 'in-progress' : 'todo';
+        var nameClass = isDone ? 'done' : '';
+
+        html += '<div class="ms-task-item">';
+        html += '<span class="ms-task-dot ' + dotClass + '"></span>';
+        html += '<span class="ms-task-name ' + nameClass + '">' + escapeHtml(task.title || task.id) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+// ====== LEFT PANES ======
+function renderDoc(docId, docData, gaps) {
+  var match = docData.match || 0;
+  var gapsList = docData.gaps || [];
+  
+  // Fallback to gaps object if not in docData
+  if (gaps && gaps[docId]) {
+    match = gaps[docId].match || gaps[docId].score || match;
+    gapsList = gaps[docId].gaps || gapsList;
+  }
+  
+  // 查找 doc 配置（支持新旧格式）
+  var docConfig = null;
+  if (teamConfig && teamConfig.dashboard && teamConfig.dashboard.left) {
+    docConfig = teamConfig.dashboard.left.find(function(d) { return d.id === docId; });
+  } else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+    docConfig = teamConfig.docs.items.find(function(d) { return d.id === docId; });
+  }
+  var docName = docConfig ? (docConfig.title || docConfig.name) : docId;
+  
+  var html = renderMatchDisplay(docName + ' Match', match);
+  html += renderGapsList(gapsList);
+  if (docData.content) html += '<div class="md-content">' + marked.parse(docData.content) + '</div>';
+  
+  var pane = document.getElementById('pane-' + docId);
+  if (pane) pane.innerHTML = html;
+  
+  // Update tab badge
+  var badge = document.getElementById('tab-match-' + docId);
+  if (badge) {
+    badge.textContent = match + '%';
+    badge.className = 'tab-match ' + (match >= 80 ? 'green' : match >= 50 ? 'yellow' : 'red');
+  }
+}
+
+function renderVision(vision, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.vision) { match = gaps.vision.match || gaps.vision.coverage || 0; gapsList = gaps.vision.gaps || []; }
+  var html = renderMatchDisplay('Vision Match', match);
+  html += renderGapsList(gapsList);
+  if (vision.content) html += '<div class="md-content">' + marked.parse(vision.content) + '</div>';
+  document.getElementById('pane-vision').innerHTML = html;
+}
+
+function renderPRD(prd, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.prd) { match = gaps.prd.match || gaps.prd.coverage || 0; gapsList = gaps.prd.gaps || []; }
+  var html = renderMatchDisplay('PRD Match', match);
+  html += renderGapsList(gapsList);
+  if (prd && prd.content) html += '<div class="md-content">' + marked.parse(prd.content) + '</div>';
+  document.getElementById('pane-prd').innerHTML = html;
+}
+
+function renderDBB(dbb, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.dbb) { match = gaps.dbb.match || gaps.dbb.coverage || 0; gapsList = gaps.dbb.gaps || []; }
+  var html = renderMatchDisplay('DBB Match', match);
+  html += renderGapsList(gapsList);
+  if (dbb && dbb.content) html += '<div class="md-content">' + marked.parse(dbb.content) + '</div>';
+  document.getElementById('pane-dbb').innerHTML = html;
+}
+
+function renderArchitecture(arch, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.architecture) { match = gaps.architecture.match || gaps.architecture.coverage || 0; gapsList = gaps.architecture.gaps || []; }
+  var el = document.getElementById('pane-arch');
+  var html = renderMatchDisplay('Architecture Match', match);
+  html += renderGapsList(gapsList);
+
+  var modules = arch.modules || [];
+  if (modules.length > 0) {
+    html += '<div class="module-list">';
+    for (var j = 0; j < modules.length; j++) {
+      var mod = modules[j];
+      var statusCls = mod.status === 'implemented' ? 'implemented' : mod.status === 'missing' ? 'missing' : 'partial';
+      html += '<div class="module-item">' +
+        '<span class="module-name">' + escapeHtml(mod.name) + '</span>' +
+        '<span class="module-status ' + statusCls + '">' + escapeHtml(mod.status || 'partial') + '</span>' +
+        '<span class="module-coverage">' + (mod.coverage || 0) + '%</span></div>';
+    }
+    html += '</div>';
+  }
+
+  if (arch.diagramSvg) html += '<div class="mermaid-wrap">' + arch.diagramSvg + '</div>';
+  if (arch.content) html += '<div class="md-content">' + marked.parse(arch.content) + '</div>';
+  el.innerHTML = html;
+}
+
+// --- Shared Render Helpers ---
+function renderMatchDisplay(label, value) {
+  var colorClass = value > 80 ? 'green' : value > 50 ? 'yellow' : 'red';
+  return '<div class="match-display">' +
+    '<div class="match-label">' + label + '</div>' +
+    '<div class="match-number ' + colorClass + '">' + value + '<span class="pct">%</span></div>' +
+    '<div class="match-bar"><div class="match-bar-fill ' + colorClass + '" style="width:' + value + '%"></div></div></div>';
+}
+
+function renderGapsList(gapsList) {
+  if (!gapsList || gapsList.length === 0) return '';
+  var html = '<ul class="gap-list">';
+  for (var i = 0; i < gapsList.length; i++) {
+    var g = gapsList[i];
+    var text = typeof g === 'string' ? g : g.description || g.details || g.gap || g.module || JSON.stringify(g);
+    html += '<li>' + escapeHtml(text) + '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
+
+// --- Helpers ---
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '';
+  var d = new Date(isoStr);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+
+// --- Daemon Toggle ---
+document.getElementById('toggle-daemon').addEventListener('click', function() {
+  var action = daemonRunning ? 'stop' : 'start';
+  fetch('/daemon/' + action, { method: 'POST' }).then(function() {
+    setTimeout(refresh, 1000);
+  });
+});
+
+// --- Auto-refresh ---
+setInterval(refresh, 5000);
+refresh();
