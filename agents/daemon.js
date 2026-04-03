@@ -697,6 +697,7 @@ class TeamDaemon {
     this.busy = true;
 
     try {
+      var config = this.loadWorkflowConfig();
       var milestones = this.getMilestones();
       var active = (milestones.milestones || []).find(function(m) { return m.status === 'active'; });
 
@@ -706,14 +707,30 @@ class TeamDaemon {
       } else if (this.isMilestoneComplete()) {
         await this.onMilestoneComplete();
       } else if (active) {
-        await this.workLoop();
+        // Active milestone - check version
+        if (config.version === '3.0') {
+          // v3.0: use WorkflowEngine
+          this.log('agent_start', 'workflow', 'Using v3.0 WorkflowEngine for work_loop');
+          const WorkflowEngine = require('./workflow-engine-v3');
+          const engine = new WorkflowEngine(config, this);
+          await engine.executeNode('work_loop');
+        } else {
+          // v2.0: use legacy workLoop
+          await this.workLoop();
+        }
       } else {
         // All milestones completed, no active one
         this.log('agent_start', 'pm', 'All milestones completed, checking for new work...');
         await this.runAgent('pm');
         var newActive = this.getActiveMilestone();
         if (newActive) {
-          await this.workLoop();
+          if (config.version === '3.0') {
+            const WorkflowEngine = require('./workflow-engine-v3');
+            const engine = new WorkflowEngine(config, this);
+            await engine.executeNode('work_loop');
+          } else {
+            await this.workLoop();
+          }
         }
       }
     } catch (err) {

@@ -99,11 +99,31 @@ class WorkflowEngine {
   }
 
   loadNodeFromFile(filePath) {
-    const fullPath = path.resolve(__dirname, '../configs', filePath);
-    if (fullPath.endsWith('.js')) {
-      return require(fullPath);
+    // 1. 先尝试项目目录
+    const projectPath = path.join(this.daemon.projectDir, '.team', filePath);
+    this.daemon.log('workflow', 'loadNode', `Trying project path: ${projectPath}`);
+    if (fs.existsSync(projectPath)) {
+      this.daemon.log('workflow', 'loadNode', `Found in project: ${projectPath}`);
+      if (projectPath.endsWith('.js')) {
+        delete require.cache[require.resolve(projectPath)]; // 清除缓存
+        return require(projectPath);
+      }
+      return JSON.parse(fs.readFileSync(projectPath, 'utf8'));
     }
-    return JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    
+    // 2. 回退到 configs 目录
+    const fullPath = path.resolve(__dirname, '../configs', filePath);
+    this.daemon.log('workflow', 'loadNode', `Trying configs path: ${fullPath}`);
+    if (fs.existsSync(fullPath)) {
+      this.daemon.log('workflow', 'loadNode', `Found in configs: ${fullPath}`);
+      if (fullPath.endsWith('.js')) {
+        return require(fullPath);
+      }
+      return JSON.parse(fs.readFileSync(fullPath, 'utf8'));
+    }
+    
+    this.daemon.log('error', 'loadNode', `Node file not found: ${filePath}`);
+    return null;
   }
 
   /**
