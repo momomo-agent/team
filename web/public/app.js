@@ -22,6 +22,7 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   // 初始化右侧 dashboard tabs
   if (config.dashboard && config.dashboard.tabs) {
     dashboardTabs = config.dashboard.tabs;
+    initializeRightTabs(dashboardTabs);
     if (dashboardTabs.length > 0) {
       activeRightTab = dashboardTabs[0].id;
       activeMobileTab = dashboardTabs[0].id;
@@ -49,6 +50,26 @@ function initializeTabs(docs) {
   });
   
   if (docs.length > 0) activeTab = docs[0].id;
+}
+
+function initializeRightTabs(tabs) {
+  var tabBar = document.getElementById('right-tab-bar');
+  var paper = tabBar.nextElementSibling;
+  tabBar.innerHTML = '';
+  paper.innerHTML = '';
+  
+  tabs.forEach(function(tab, i) {
+    var rtab = document.createElement('div');
+    rtab.className = 'right-tab' + (i === 0 ? ' active' : '');
+    rtab.dataset.rtab = tab.id;
+    rtab.textContent = tab.title;
+    tabBar.appendChild(rtab);
+    
+    var pane = document.createElement('div');
+    pane.className = 'right-pane' + (i === 0 ? ' active' : '');
+    pane.id = 'rpane-' + tab.id;
+    paper.appendChild(pane);
+  });
 }
 
 
