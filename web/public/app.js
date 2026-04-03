@@ -631,8 +631,7 @@ function renderKanban(kanban, milestones) {
 
 function selectMilestone(msId) {
   selectedMilestoneId = msId;
-  // Don't re-fetch, just re-render with cached data
-  renderMilestones(cachedMilestones);
+  // Don't re-fetch, just re-render kanban with cached data
   renderKanbanFromCache();
 }
 
