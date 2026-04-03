@@ -36,6 +36,9 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   else if (config.docs && config.docs.items) {
     initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
   }
+  
+  // 配置加载完成后刷新数据
+  refresh();
 }).catch(function() {});
 
 function initializeTabs(tabs) {
@@ -649,4 +652,4 @@ document.getElementById('toggle-daemon').addEventListener('click', function() {
 
 // --- Auto-refresh ---
 setInterval(refresh, 5000);
-refresh();
+// refresh() 已在配置加载后调用
