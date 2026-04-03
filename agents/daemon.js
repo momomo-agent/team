@@ -81,13 +81,23 @@ class TeamDaemon {
     // Append to daemon-history.json
     var historyPath = path.join(this.projectDir, '.team/daemon-history.json');
     var history = [];
-    try { history = JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch {}
+    try { 
+      history = JSON.parse(fs.readFileSync(historyPath, 'utf8')); 
+    } catch {}
     history.push(entry);
     // Keep last MAX_HISTORY_ENTRIES entries
     if (history.length > MAX_HISTORY_ENTRIES) {
       history = history.slice(history.length - MAX_HISTORY_ENTRIES);
     }
-    fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+    try {
+      var teamDir = path.join(this.projectDir, '.team');
+      if (!fs.existsSync(teamDir)) {
+        fs.mkdirSync(teamDir, { recursive: true });
+      }
+      fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+    } catch (e) {
+      // Ignore write errors
+    }
   }
 
   // --- Agent Execution ---
