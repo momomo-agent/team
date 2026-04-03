@@ -53,6 +53,10 @@ class WorkflowEngine {
         await this.executeLoop(node, ctx);
         break;
 
+      case 'reactive':
+        await this.executeReactive(node, ctx);
+        break;
+
       case 'wait':
         await this.executeWait(node, ctx);
         if (node.next) await this.executeNode(node.next);
@@ -271,6 +275,47 @@ class WorkflowEngine {
   }
 
   /**
+   * 执行 reactive 节点（事件驱动）
+   */
+  async executeReactive(node, ctx) {
+    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Starting event-driven workflow');
+    
+    // 初始化事件队列
+    const eventQueue = [];
+    const runningAgents = new Set();
+    
+    // 初始触发：检查所有 agents 的初始条件
+    for (const [agentName, agentConfig] of Object.entries(node.agents)) {
+      if (this.shouldTriggerAgent(agentConfig, ctx, null)) {
+        eventQueue.push({ type: 'trigger', agent: agentName });
+      }
+    }
+    
+    // 事件循环
+    while (eventQueue.length > 0 || runningAgents.size > 0) {
+      // 处理队列中的事件
+      while (eventQueue.length > 0) {
+        const event = eventQueue.shift();
+        await this.handleReactiveEvent(event, node, ctx, runningAgents, eventQueue);
+      }
+      
+      // 检查退出条件
+      if (this.shouldExitReactive(node, ctx)) {
+        break;
+      }
+      
+      // 等待一小段时间再检查
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    // 执行退出逻辑
+    const exitTarget = this.getReactiveExitTarget(node, ctx);
+    if (exitTarget) {
+      await this.executeNode(exitTarget);
+    }
+  }
+
+  /**
    * 执行 wait 节点
    */
   async executeWait(node, ctx) {
@@ -313,6 +358,118 @@ class WorkflowEngine {
     }
 
     return false;
+  }
+
+  /**
+   * 检查是否应该触发 agent
+   */
+  shouldTriggerAgent(agentConfig, ctx, event) {
+    if (!agentConfig.trigger) return false;
+    
+    // 基于事件触发
+    if (agentConfig.trigger.on_event && event) {
+      return agentConfig.trigger.on_event.includes(event.type);
+    }
+    
+    // 基于条件触发
+    if (agentConfig.trigger.condition) {
+      return this.evaluateCondition(agentConfig.trigger.condition, ctx);
+    }
+    
+    return false;
+  }
+
+  /**
+   * 处理 reactive 事件
+   */
+  async handleReactiveEvent(event, node, ctx, runningAgents, eventQueue) {
+    if (event.type === 'trigger') {
+      const agentName = event.agent;
+      const agentConfig = node.agents[agentName];
+      
+      // 检查并发限制
+      if (agentConfig.scalable) {
+        const max = agentConfig.max || ctx.maxDevs || 3;
+        const running = Array.from(runningAgents).filter(a => a.startsWith(agentName)).length;
+        
+        if (running >= max) {
+          this.daemon.log('workflow', this.currentNode, `[REACTIVE] ${agentName} at max concurrency (${max})`);
+          return;
+        }
+        
+        // 启动多个实例
+        const count = Math.min(max - running, this.getAgentDemand(agentName, ctx));
+        for (let i = 1; i <= count; i++) {
+          const instanceName = `${agentName}-${i}`;
+          if (!runningAgents.has(instanceName)) {
+            runningAgents.add(instanceName);
+            this.runAgentAsync(instanceName, agentConfig, ctx, runningAgents, eventQueue);
+          }
+        }
+      } else {
+        // 单实例 agent
+        if (!runningAgents.has(agentName)) {
+          runningAgents.add(agentName);
+          this.runAgentAsync(agentName, agentConfig, ctx, runningAgents, eventQueue);
+        }
+      }
+    }
+  }
+
+  /**
+   * 异步运行 agent
+   */
+  async runAgentAsync(agentName, agentConfig, ctx, runningAgents, eventQueue) {
+    try {
+      await this.daemon.runAgent(agentName);
+      
+      // Agent 完成，触发 on_complete 事件
+      if (agentConfig.on_complete) {
+        for (const nextAgent of agentConfig.on_complete) {
+          eventQueue.push({ type: 'trigger', agent: nextAgent });
+        }
+      }
+    } catch (err) {
+      this.daemon.log('error', agentName, `Agent failed: ${err.message}`);
+    } finally {
+      runningAgents.delete(agentName);
+    }
+  }
+
+  /**
+   * 获取 agent 需求数量
+   */
+  getAgentDemand(agentName, ctx) {
+    if (agentName === 'developer') {
+      return ctx.designedTasks || 0;
+    } else if (agentName === 'tester') {
+      return ctx.reviewCount || 0;
+    }
+    return 1;
+  }
+
+  /**
+   * 检查是否应该退出 reactive 循环
+   */
+  shouldExitReactive(node, ctx) {
+    if (!node.exit || !node.exit.condition) return false;
+    return this.evaluateCondition(node.exit.condition, ctx);
+  }
+
+  /**
+   * 获取 reactive 退出目标
+   */
+  getReactiveExitTarget(node, ctx) {
+    if (!node.exit || !node.exit.next) return null;
+    
+    const next = node.exit.next;
+    if (typeof next === 'string') return next;
+    
+    // 条件分支
+    if (next.if && this.evaluateCondition(next.if, ctx)) {
+      return next.then;
+    }
+    return next.else || null;
   }
 }
 

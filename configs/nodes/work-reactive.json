@@ -1,0 +1,41 @@
+{
+  "type": "reactive",
+  "description": "事件驱动工作循环",
+  "agents": {
+    "tech_lead": {
+      "trigger": {
+        "condition": "todoCount > 0 && designedTasks === 0"
+      },
+      "on_complete": ["pm"]
+    },
+    "developer": {
+      "scalable": true,
+      "max": 3,
+      "trigger": {
+        "condition": "designedTasks > 0"
+      },
+      "on_complete": ["pm"]
+    },
+    "tester": {
+      "scalable": true,
+      "max": 2,
+      "trigger": {
+        "condition": "reviewCount > 0"
+      },
+      "on_complete": ["pm"]
+    },
+    "pm": {
+      "trigger": {
+        "on_event": ["tech_lead_complete", "developer_complete", "tester_complete"]
+      }
+    }
+  },
+  "exit": {
+    "condition": "todoCount === 0 && reviewCount === 0 && inProgressCount === 0 && testingCount === 0",
+    "next": {
+      "if": "doneCount > 0",
+      "then": "quality_gate",
+      "else": "standby"
+    }
+  }
+}

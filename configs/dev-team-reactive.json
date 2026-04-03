@@ -1,0 +1,153 @@
+{
+  "version": "3.1",
+  "name": "dev-team-reactive",
+  "description": "AI 开发团队 - 事件驱动版本",
+  "dashboard": {
+    "left": [
+      {
+        "title": "愿景",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "VISION.md",
+            "gapKey": "vision",
+            "label": "Vision"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/vision.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "产品需求",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "PRD.md",
+            "gapKey": "prd",
+            "label": "PRD"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/prd.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "预期验收",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "EXPECTED_DBB.md",
+            "gapKey": "dbb",
+            "label": "DBB"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/dbb.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "技术架构",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "ARCHITECTURE.md",
+            "gapKey": "architecture",
+            "label": "Architecture"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/architecture.json",
+          "field": "match"
+        }
+      }
+    ],
+    "right": [
+      {
+        "title": "Pipeline",
+        "components": [
+          {
+            "component": "PipelineView",
+            "path": ".team/milestones/milestones.json"
+          }
+        ]
+      },
+      {
+        "title": "Kanban",
+        "components": [
+          {
+            "component": "KanbanView",
+            "path": ".team/kanban.json"
+          }
+        ]
+      },
+      {
+        "title": "Milestones",
+        "components": [
+          {
+            "component": "MilestonesView",
+            "path": ".team/milestones/milestones.json"
+          }
+        ]
+      }
+    ]
+  },
+  "workflow": {
+    "entry": "startup",
+    "nodes": {
+      "startup": "nodes/startup.json",
+      "work_loop": "nodes/work-reactive.json",
+      "quality_gate": "nodes/quality-gate.json",
+      "standby": "nodes/standby.json"
+    }
+  },
+  "agents": {
+    "architect": {
+      "prompt": "prompts/architect.md",
+      "model": "claude-sonnet-4"
+    },
+    "vision_monitor": {
+      "prompt": "prompts/vision_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "prd_monitor": {
+      "prompt": "prompts/prd_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "dbb_monitor": {
+      "prompt": "prompts/dbb_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "arch_monitor": {
+      "prompt": "prompts/arch_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "pm": {
+      "prompt": "prompts/pm.md",
+      "model": "claude-sonnet-4"
+    },
+    "tech_lead": {
+      "prompt": "prompts/tech_lead.md",
+      "model": "claude-sonnet-4"
+    },
+    "developer": {
+      "prompt": "prompts/developer.md",
+      "model": "claude-sonnet-4",
+      "scalable": true
+    },
+    "tester": {
+      "prompt": "prompts/tester.md",
+      "model": "claude-sonnet-4",
+      "scalable": true
+    }
+  },
+  "docs": {
+    "root": ".team/docs"
+  },
+  "monitor": {
+    "interval": 5000
+  }
+}
