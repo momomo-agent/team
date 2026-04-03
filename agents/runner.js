@@ -97,7 +97,12 @@ function buildPrompt(agentType, projectDir, agentId) {
   }
 
   // Load prompt from file
-  const promptPath = path.join(DEVTEAM_ROOT, agentConf.prompt);
+  // Support both string format and object format
+  let promptRelPath = agentConf.prompt;
+  if (typeof promptRelPath === 'object' && promptRelPath.path) {
+    promptRelPath = promptRelPath.path;
+  }
+  const promptPath = path.join(DEVTEAM_ROOT, promptRelPath);
   if (!fs.existsSync(promptPath)) {
     console.error('Prompt file not found: ' + promptPath);
     process.exit(1);

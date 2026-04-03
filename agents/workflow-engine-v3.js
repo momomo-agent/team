@@ -317,10 +317,9 @@ class WorkflowEngine {
       if (eventQueue.length === 0 && runningAgents.size === 0) {
         idleCount++;
         if (idleCount >= maxIdle) {
-          // 空转但没有满足退出条件，说明在等待新任务
-          // 不退出，继续等待
-          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle, waiting for new tasks...');
-          idleCount = 0; // 重置计数，继续等待
+          // 空转达到阈值，强制退出
+          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
+          break;
         }
       }
       
