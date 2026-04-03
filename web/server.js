@@ -228,8 +228,20 @@ const server = http.createServer((req, res) => {
     const agents = getAgents();
     const activeCount = Object.values(agents).filter(a => a.status === 'running').length;
     const gaps = getAllGaps();
+    
+    // Extract project name from VISION.md title
+    const visionPath = path.join(projectDir, 'VISION.md');
+    let projectName = config.name || 'DevTeam';
+    try {
+      const visionContent = fs.readFileSync(visionPath, 'utf8');
+      const titleMatch = visionContent.match(/^#\s+(.+)$/m);
+      if (titleMatch) {
+        projectName = titleMatch[1].replace(/^Vision:\s*/i, '').trim();
+      }
+    } catch {}
+    
     sendJSON({
-      project: config,
+      project: { ...config, name: projectName },
       daemon: running,
       agentCount: Object.keys(agents).length,
       activeAgentCount: activeCount,

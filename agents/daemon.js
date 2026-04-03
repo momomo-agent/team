@@ -43,6 +43,7 @@ class TeamDaemon {
     var defaultConfig = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf8'));
 
     return {
+      version: projectConfig.version || defaultConfig.version,
       workflow: projectConfig.workflow || defaultConfig.workflow,
       agents: projectConfig.agents || defaultConfig.agents,
       git: projectConfig.git || defaultConfig.git || {},
@@ -408,6 +409,7 @@ class TeamDaemon {
 
     // 检查配置版本
     var config = this.loadWorkflowConfig();
+    this.log('agent_start', 'workflow', 'Config version: ' + config.version);
     
     if (config.version === '3.0') {
       // v3.0: 使用 WorkflowEngine
@@ -416,6 +418,7 @@ class TeamDaemon {
       await engine.execute();
     } else {
       // v2.0: 使用原有逻辑
+      this.log('agent_start', 'workflow', 'Using v2.0 workflow');
       var startup = config.workflow.startup;
       
       if (!startup || !Array.isArray(startup)) {
