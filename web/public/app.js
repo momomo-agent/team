@@ -2,8 +2,13 @@ var daemonRunning = false;
 var activeMilestoneId = null;
 var selectedMilestoneId = null;
 var activeTab = 'vision';
+var activeRightTab = 'pipeline';
+var activeMobileTab = 'pipeline';
+var cachedMilestones = [];
+var cachedGaps = {};
+var expandedStages = {};
 
-// --- Tab Switching ---
+// --- Left Tab Switching ---
 document.getElementById('tab-bar').addEventListener('click', function(e) {
   var tab = e.target.closest('.folder-tab');
   if (!tab) return;
@@ -17,6 +22,51 @@ document.getElementById('tab-bar').addEventListener('click', function(e) {
   if (pane) pane.classList.add('active');
 });
 
+// --- Right Tab Switching ---
+document.getElementById('right-tab-bar').addEventListener('click', function(e) {
+  var tab = e.target.closest('.right-tab');
+  if (!tab) return;
+  var tabName = tab.dataset.rtab;
+  if (!tabName) return;
+  activeRightTab = tabName;
+  document.querySelectorAll('.right-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.right-pane').forEach(function(p) { p.classList.remove('active'); });
+  tab.classList.add('active');
+  var pane = document.getElementById('rpane-' + tabName);
+  if (pane) pane.classList.add('active');
+});
+
+// --- Mobile Tab Switching ---
+var mobileTabBar = document.getElementById('mobile-tab-bar');
+if (mobileTabBar) {
+  mobileTabBar.addEventListener('click', function(e) {
+    var tab = e.target.closest('.mobile-tab');
+    if (!tab) return;
+    var tabName = tab.dataset.mtab;
+    if (!tabName) return;
+    activeMobileTab = tabName;
+    document.querySelectorAll('.mobile-tab').forEach(function(t) { t.classList.remove('active'); });
+    tab.classList.add('active');
+    syncMobilePane();
+  });
+}
+
+function syncMobilePane() {
+  var mp = document.getElementById('mobile-paper');
+  if (!mp) return;
+  // Map mobile tab to the corresponding desktop pane content
+  var rightPanes = ['pipeline', 'kanban', 'milestones'];
+  var leftPanes = ['vision', 'prd', 'dbb', 'arch'];
+
+  if (rightPanes.indexOf(activeMobileTab) !== -1) {
+    var src = document.getElementById('rpane-' + activeMobileTab);
+    mp.innerHTML = src ? src.innerHTML : '';
+  } else if (leftPanes.indexOf(activeMobileTab) !== -1) {
+    var src = document.getElementById('pane-' + activeMobileTab);
+    mp.innerHTML = src ? src.innerHTML : '';
+  }
+}
+
 // --- Data Loading ---
 async function refresh() {
   try {
@@ -28,7 +78,8 @@ async function refresh() {
       fetch('/milestones').then(function(r) { return r.json(); }).catch(function() { return { milestones: [] }; }),
       fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/prd').then(function(r) { return r.json(); }).catch(function() { return {}; }),
-      fetch('/dbb').then(function(r) { return r.json(); }).catch(function() { return {}; })
+      fetch('/dbb').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch('/pipeline').then(function(r) { return r.json(); }).catch(function() { return { stages: [] }; })
     ]);
 
     var status = results[0];
@@ -39,8 +90,11 @@ async function refresh() {
     var agents = results[5];
     var prd = results[6];
     var dbb = results[7];
+    var pipeline = results[8];
 
     var milestones = msData.milestones || [];
+    cachedMilestones = milestones;
+    cachedGaps = gaps;
     var activeMs = milestones.find(function(m) { return m.status === 'active'; });
     activeMilestoneId = activeMs ? activeMs.id : null;
 
@@ -56,12 +110,12 @@ async function refresh() {
     renderPRD(prd, gaps);
     renderDBB(dbb, gaps);
     renderArchitecture(arch, gaps);
-    renderMilestones(milestones);
+    renderPipeline(pipeline);
     renderKanban(kanban, milestones);
+    renderMilestones(milestones);
 
-    // Update kanban header
-    var kanbanMs = milestones.find(function(m) { return m.id === kanbanMsId; });
-    document.getElementById('kanban-header').textContent = kanbanMs ? 'Kanban — ' + kanbanMs.id + ' ' + (kanbanMs.name || '') : 'Kanban';
+    // Sync mobile pane after all renders
+    syncMobilePane();
   } catch (err) {
     console.error('Refresh error:', err);
   }
@@ -85,7 +139,10 @@ function renderTopBar(status, agents) {
   var color = running ? '%234ade80' : '%23888';
   document.getElementById('favicon').href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='" + color + "'/></svg>";
 
-  renderAgents(agents);
+  var entries = Object.entries(agents);
+  var activeCount = entries.filter(function(e) { return e[1].status === 'running'; }).length;
+  var countEl = document.getElementById('agent-count');
+  countEl.textContent = activeCount > 0 ? activeCount + ' agent' + (activeCount > 1 ? 's' : '') + ' active' : entries.length + ' agents';
 }
 
 // --- Tab match badges ---
@@ -95,216 +152,112 @@ function updateTabMatches(status, gaps) {
 
   Object.keys(tabs).forEach(function(key) {
     var val = tabs[key] || 0;
-    var el = document.getElementById('tab-match-' + key);
-    if (!el) return;
     var colorClass = val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
-    el.textContent = val + '%';
-    el.className = 'tab-match ' + colorClass;
+
+    // Desktop tab
+    var el = document.getElementById('tab-match-' + key);
+    if (el) { el.textContent = val + '%'; el.className = 'tab-match ' + colorClass; }
+
+    // Mobile tab
+    var mel = document.getElementById('m-tab-match-' + key);
+    if (mel) { mel.textContent = val + '%'; mel.className = 'tab-match ' + colorClass; }
   });
 }
 
-// --- Agents ---
-function renderAgents(agents) {
-  var names = {
-    architect: '\uD83C\uDFD7\uFE0F Arch',
-    vision_monitor: '\uD83D\uDC41\uFE0F Vision',
-    prd_monitor: '\uD83D\uDCCB PRD',
-    dbb_monitor: '\u2705 DBB',
-    arch_monitor: '\uD83D\uDCCA Arch',
-    pm: '\uD83D\uDCCB PM',
-    tech_lead: '\uD83D\uDD27 Lead'
-  };
+// ====== PIPELINE VIEW ======
+function renderPipeline(pipeline) {
+  var el = document.getElementById('rpane-pipeline');
+  var stages = pipeline.stages || [];
 
-  var bar = document.getElementById('agent-bar');
-  var countEl = document.getElementById('agent-count');
-  var entries = Object.entries(agents);
-
-  if (entries.length === 0) {
-    bar.innerHTML = '<span style="color:#666;font-size:11px;">No agents</span>';
-    countEl.textContent = '';
+  if (stages.length === 0) {
+    el.innerHTML = '<div style="color:#888;font-size:11px;padding:16px;">No pipeline data. Start the daemon to see the workflow.</div>';
     return;
   }
 
-  var activeCount = entries.filter(function(e) { return e[1].status === 'running'; }).length;
-  countEl.textContent = activeCount > 0 ? activeCount + ' active' : '';
+  var html = '';
+  for (var i = 0; i < stages.length; i++) {
+    var stage = stages[i];
+    var hasActive = stage.liveAgents.some(function(a) { return a.status === 'running'; });
+    var hasError = stage.liveAgents.some(function(a) { return a.status === 'error'; });
+    var hasWaiting = stage.liveAgents.some(function(a) { return a.status === 'retrying'; });
+    var stageClass = hasActive ? 'has-active' : hasError ? 'has-error' : '';
+    var dotClass = hasActive ? 'running' : hasError ? 'error' : hasWaiting ? 'waiting' : 'idle';
 
-  bar.innerHTML = entries.map(function(entry) {
-    var name = entry[0];
-    var info = entry[1];
-    var label = names[name] || (name.startsWith('developer') ? '\uD83D\uDCBB ' + name : name.startsWith('tester') ? '\uD83E\uDDEA ' + name : name);
-    var dotClass = info.status === 'running' ? 'running' : info.status === 'error' ? 'error' : '';
-    var taskText = info.status === 'running' && info.currentTask ? '<span class="agent-task-text">' + escapeHtml(info.currentTask) + '</span>' : '';
-    return '<div class="agent-chip"><span class="dot ' + dotClass + '"></span>' + escapeHtml(label) + taskText + '</div>';
-  }).join('');
-}
+    var isExpanded = expandedStages[stage.id] !== false; // default expanded
 
-// --- Vision Pane ---
-function renderVision(vision, gaps) {
-  var match = 0;
-  var gapsList = [];
-
-  if (gaps && gaps.vision) {
-    match = gaps.vision.match || gaps.vision.coverage || 0;
-    gapsList = gaps.vision.gaps || [];
-  }
-
-  var html = renderMatchDisplay('Vision Match', match);
-  html += renderGapsList(gapsList);
-
-  if (vision.content) {
-    html += '<div class="md-content">' + marked.parse(vision.content) + '</div>';
-  }
-
-  document.getElementById('pane-vision').innerHTML = html;
-}
-
-// --- PRD Pane ---
-function renderPRD(prd, gaps) {
-  var match = 0;
-  var gapsList = [];
-
-  if (gaps && gaps.prd) {
-    match = gaps.prd.match || gaps.prd.coverage || 0;
-    gapsList = gaps.prd.gaps || [];
-  }
-
-  var html = renderMatchDisplay('PRD Match', match);
-  html += renderGapsList(gapsList);
-
-  if (prd && prd.content) {
-    html += '<div class="md-content">' + marked.parse(prd.content) + '</div>';
-  }
-
-  document.getElementById('pane-prd').innerHTML = html;
-}
-
-// --- DBB Pane ---
-function renderDBB(dbb, gaps) {
-  var match = 0;
-  var gapsList = [];
-
-  if (gaps && gaps.dbb) {
-    match = gaps.dbb.match || gaps.dbb.coverage || 0;
-    gapsList = gaps.dbb.gaps || [];
-  }
-
-  var html = renderMatchDisplay('DBB Match', match);
-  html += renderGapsList(gapsList);
-
-  if (dbb && dbb.content) {
-    html += '<div class="md-content">' + marked.parse(dbb.content) + '</div>';
-  }
-
-  document.getElementById('pane-dbb').innerHTML = html;
-}
-
-// --- Architecture Pane ---
-function renderArchitecture(arch, gaps) {
-  var match = 0;
-  var gapsList = [];
-
-  if (gaps && gaps.architecture) {
-    match = gaps.architecture.match || gaps.architecture.coverage || 0;
-    gapsList = gaps.architecture.gaps || [];
-  }
-
-  var el = document.getElementById('pane-arch');
-  var html = renderMatchDisplay('Architecture Match', match);
-  html += renderGapsList(gapsList);
-
-  // Module completion list
-  var modules = arch.modules || [];
-  if (modules.length > 0) {
-    html += '<div class="module-list">';
-    for (var j = 0; j < modules.length; j++) {
-      var mod = modules[j];
-      var statusCls = mod.status === 'implemented' ? 'implemented' : mod.status === 'missing' ? 'missing' : 'partial';
-      html += '<div class="module-item">' +
-        '<span class="module-name">' + escapeHtml(mod.name) + '</span>' +
-        '<span class="module-status ' + statusCls + '">' + escapeHtml(mod.status || 'partial') + '</span>' +
-        '<span class="module-coverage">' + (mod.coverage || 0) + '%</span>' +
-        '</div>';
-    }
+    html += '<div class="pipeline-stage ' + stageClass + '">';
+    html += '<div class="stage-header" onclick="toggleStage(\'' + stage.id + '\')">';
+    html += '<span class="stage-icon">' + (stage.icon || '⚙️') + '</span>';
+    html += '<span class="stage-name">' + escapeHtml(stage.name) + '</span>';
+    html += '<span class="stage-status-dot ' + dotClass + '"></span>';
     html += '</div>';
-  }
 
-  // Mermaid diagram
-  if (arch.diagram) {
-    html += '<div class="mermaid-wrap"><div class="mermaid">' + escapeHtml(arch.diagram) + '</div></div>';
-  }
+    if (isExpanded) {
+      html += '<div class="stage-body">';
 
-  // Architecture markdown content
-  if (arch.content) {
-    html += '<div class="md-content">' + marked.parse(arch.content) + '</div>';
+      if (stage.liveAgents.length === 0) {
+        html += '<div class="stage-empty">等待进入此阶段</div>';
+      } else {
+        for (var j = 0; j < stage.liveAgents.length; j++) {
+          var agent = stage.liveAgents[j];
+          var aStatus = agent.status || 'idle';
+          var aClass = aStatus === 'running' ? 'running' : aStatus === 'error' ? 'error' : aStatus === 'retrying' ? 'retrying' : '';
+
+          html += '<div class="pipeline-agent ' + aClass + '">';
+          html += '<span class="pa-dot ' + aStatus + '"></span>';
+          html += '<span class="pa-name">' + escapeHtml(agent.name) + '</span>';
+
+          if (agent.currentTask) {
+            html += '<span class="pa-task">' + escapeHtml(agent.currentTask) + '</span>';
+          }
+
+          if (agent.lastRun) {
+            html += '<span class="pa-time">' + formatTime(agent.lastRun) + '</span>';
+          }
+
+          html += '</div>';
+        }
+      }
+
+      // Recent events
+      if (stage.recentEvents && stage.recentEvents.length > 0) {
+        html += '<div class="stage-events">';
+        var events = stage.recentEvents.slice(-5);
+        for (var k = 0; k < events.length; k++) {
+          var ev = events[k];
+          var evDotClass = ev.event || 'start';
+          html += '<div class="stage-event">';
+          html += '<span class="se-time">' + formatTime(ev.time) + '</span>';
+          html += '<span class="se-dot ' + evDotClass + '"></span>';
+          html += '<span>' + escapeHtml((ev.agent || '') + ' ' + (ev.details || '')) + '</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      html += '</div>'; // stage-body
+    }
+
+    html += '</div>'; // pipeline-stage
+
+    // Connector between stages
+    if (i < stages.length - 1) {
+      html += '<div class="pipeline-connector"></div>';
+    }
   }
 
   el.innerHTML = html;
-
-  // Render mermaid
-  if (arch.diagram) {
-    try { mermaid.run({ nodes: el.querySelectorAll('.mermaid') }); } catch (e) { console.error('mermaid error:', e); }
-  }
 }
 
-// --- Shared Render Helpers ---
-function renderMatchDisplay(label, value) {
-  var colorClass = value > 80 ? 'green' : value > 50 ? 'yellow' : 'red';
-  return '<div class="match-display">' +
-    '<div class="match-label">' + label + '</div>' +
-    '<div class="match-number ' + colorClass + '">' + value + '<span class="pct">%</span></div>' +
-    '<div class="match-bar"><div class="match-bar-fill ' + colorClass + '" style="width:' + value + '%"></div></div>' +
-    '</div>';
+function toggleStage(stageId) {
+  expandedStages[stageId] = expandedStages[stageId] === false ? true : false;
+  // Re-render pipeline from last data (avoid re-fetch)
+  fetch('/pipeline').then(function(r) { return r.json(); }).then(renderPipeline);
 }
 
-function renderGapsList(gapsList) {
-  if (!gapsList || gapsList.length === 0) return '';
-  var html = '<ul class="gap-list">';
-  for (var i = 0; i < gapsList.length; i++) {
-    var g = gapsList[i];
-    var text = typeof g === 'string' ? g : g.description || g.details || g.gap || g.module || JSON.stringify(g);
-    html += '<li>' + escapeHtml(text) + '</li>';
-  }
-  html += '</ul>';
-  return html;
-}
-
-// --- Milestones ---
-function renderMilestones(milestones) {
-  var el = document.getElementById('milestone-content');
-  if (!milestones || milestones.length === 0) {
-    el.innerHTML = '<div style="color:#666;font-size:11px;padding:8px;">No milestones yet</div>';
-    return;
-  }
-
-  el.innerHTML = '<div class="ms-list">' +
-    milestones.map(function(m) {
-      var pct = m.progress || 0;
-      var statusClass = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
-      var statusLabel = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
-      var kanbanMsId = selectedMilestoneId || activeMilestoneId;
-      var selectedClass = (m.id === kanbanMsId) ? ' selected' : '';
-      return '<div class="ms-row ' + statusClass + selectedClass + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' +
-        '<div class="ms-head">' +
-          '<span class="ms-name">' + escapeHtml((m.id ? m.id + ' ' : '') + (m.name || '')) + '</span>' +
-          '<span class="ms-status-badge ' + statusLabel + '">' + statusLabel + '</span>' +
-        '</div>' +
-        '<div class="ms-progress">' +
-          '<div class="ms-bar-bg"><div class="ms-bar-fill" style="width:' + pct + '%"></div></div>' +
-          '<span class="ms-pct">' + (m.doneCount || 0) + '/' + (m.taskCount || 0) + ' (' + pct + '%)</span>' +
-        '</div>' +
-      '</div>';
-    }).join('') +
-  '</div>';
-}
-
-function selectMilestone(msId) {
-  selectedMilestoneId = (selectedMilestoneId === msId) ? null : msId;
-  refresh();
-}
-
-// --- Kanban ---
+// ====== KANBAN VIEW ======
 function renderKanban(kanban, milestones) {
-  var el = document.getElementById('kanban-content');
+  var el = document.getElementById('rpane-kanban');
 
   var taskToMs = {};
   (milestones || []).forEach(function(m) {
@@ -323,15 +276,25 @@ function renderKanban(kanban, milestones) {
   var total = kanban.total || 0;
   var completion = kanban.completion || 0;
 
-  // Stats
-  var statsEl = document.getElementById('kanban-stats');
-  statsEl.innerHTML = '<strong>' + total + '</strong> tasks · <strong>' + completion + '%</strong> complete';
+  // Milestone filter
+  var filterHtml = '<div class="ms-filter-bar">';
+  filterHtml += '<span class="ms-filter-chip' + (!selectedMilestoneId ? ' active' : '') + '" onclick="selectMilestone(null)">All</span>';
+  for (var mi = 0; mi < cachedMilestones.length; mi++) {
+    var m = cachedMilestones[mi];
+    var isActive = selectedMilestoneId === m.id;
+    filterHtml += '<span class="ms-filter-chip' + (isActive ? ' active' : '') + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' + escapeHtml(m.id || m.name) + '</span>';
+  }
+  filterHtml += '</div>';
 
-  var html = '<div class="kanban-grid">';
+  var html = filterHtml;
+  html += '<div class="kanban-header"><div class="section-label" id="kanban-header-label">Kanban</div>';
+  html += '<div class="kanban-stats"><strong>' + total + '</strong> tasks · <strong>' + completion + '%</strong> complete</div></div>';
+
+  html += '<div class="kanban-grid">';
   for (var i = 0; i < columns.length; i++) {
     var col = columns[i];
-    html += '<div class="kanban-col">' +
-      '<div class="kanban-col-title">' + col.label + ' <span class="kanban-count">' + col.items.length + '</span></div>';
+    html += '<div class="kanban-col">';
+    html += '<div class="kanban-col-title">' + col.label + ' <span class="kanban-count">' + col.items.length + '</span></div>';
 
     for (var j = 0; j < col.items.length; j++) {
       var t = col.items[j];
@@ -340,13 +303,12 @@ function renderKanban(kanban, milestones) {
       var msLabel = ms ? '<span class="task-ms">' + escapeHtml(ms.id || ms.name || '') + '</span>' : '';
       var assignee = t.assignee ? '<span class="task-assignee">@' + escapeHtml(t.assignee) + '</span>' : '';
 
-      html += '<div class="task">' +
-        '<div class="task-title">' + escapeHtml(t.title || t.id) + '</div>' +
-        '<div class="task-meta">' +
-          '<span class="priority ' + pc + '">' + escapeHtml(t.priority || 'P1') + '</span>' +
-          msLabel + assignee +
-        '</div>' +
-      '</div>';
+      html += '<div class="task">';
+      html += '<div class="task-title">' + escapeHtml(t.title || t.id) + '</div>';
+      html += '<div class="task-meta">';
+      html += '<span class="priority ' + pc + '">' + escapeHtml(t.priority || 'P1') + '</span>';
+      html += msLabel + assignee;
+      html += '</div></div>';
     }
 
     html += '</div>';
@@ -356,10 +318,155 @@ function renderKanban(kanban, milestones) {
   el.innerHTML = html;
 }
 
+function selectMilestone(msId) {
+  selectedMilestoneId = msId;
+  refreshKanban();
+}
+
+async function refreshKanban() {
+  var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+  var kanbanUrl = kanbanMsId ? '/kanban?milestone=' + encodeURIComponent(kanbanMsId) : '/kanban';
+  var kanban = await fetch(kanbanUrl).then(function(r) { return r.json(); }).catch(function() {
+    return { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [], total: 0, completion: 0 };
+  });
+  renderKanban(kanban, cachedMilestones);
+}
+
+// ====== MILESTONES VIEW ======
+function renderMilestones(milestones) {
+  var el = document.getElementById('rpane-milestones');
+  if (!milestones || milestones.length === 0) {
+    el.innerHTML = '<div style="color:#666;font-size:11px;padding:8px;">No milestones yet</div>';
+    return;
+  }
+
+  var html = '';
+  for (var i = 0; i < milestones.length; i++) {
+    var m = milestones[i];
+    var pct = m.progress || 0;
+    var statusClass = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
+    var statusLabel = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
+
+    html += '<div class="ms-row ' + statusClass + '">';
+    html += '<div class="ms-head">';
+    html += '<span class="ms-name">' + escapeHtml((m.id ? m.id + ' ' : '') + (m.name || '')) + '</span>';
+    html += '<span class="ms-status-badge ' + statusLabel + '">' + statusLabel + '</span>';
+    html += '</div>';
+    html += '<div class="ms-progress">';
+    html += '<div class="ms-bar-bg"><div class="ms-bar-fill" style="width:' + pct + '%"></div></div>';
+    html += '<span class="ms-pct">' + (m.doneCount || 0) + '/' + (m.taskCount || 0) + ' (' + pct + '%)</span>';
+    html += '</div>';
+
+    // Task list under each milestone
+    if (m.taskDetails && m.taskDetails.length > 0) {
+      html += '<div class="ms-tasks">';
+      for (var j = 0; j < m.taskDetails.length; j++) {
+        var task = m.taskDetails[j];
+        var tStatus = task.status || 'todo';
+        var isDone = tStatus === 'done' || tStatus === 'completed';
+        var isInProg = tStatus === 'in-progress' || tStatus === 'inProgress' || tStatus === 'review' || tStatus === 'testing';
+        var dotClass = isDone ? 'done' : isInProg ? 'in-progress' : 'todo';
+        var nameClass = isDone ? 'done' : '';
+
+        html += '<div class="ms-task-item">';
+        html += '<span class="ms-task-dot ' + dotClass + '"></span>';
+        html += '<span class="ms-task-name ' + nameClass + '">' + escapeHtml(task.title || task.id) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+// ====== LEFT PANES ======
+function renderVision(vision, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.vision) { match = gaps.vision.match || gaps.vision.coverage || 0; gapsList = gaps.vision.gaps || []; }
+  var html = renderMatchDisplay('Vision Match', match);
+  html += renderGapsList(gapsList);
+  if (vision.content) html += '<div class="md-content">' + marked.parse(vision.content) + '</div>';
+  document.getElementById('pane-vision').innerHTML = html;
+}
+
+function renderPRD(prd, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.prd) { match = gaps.prd.match || gaps.prd.coverage || 0; gapsList = gaps.prd.gaps || []; }
+  var html = renderMatchDisplay('PRD Match', match);
+  html += renderGapsList(gapsList);
+  if (prd && prd.content) html += '<div class="md-content">' + marked.parse(prd.content) + '</div>';
+  document.getElementById('pane-prd').innerHTML = html;
+}
+
+function renderDBB(dbb, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.dbb) { match = gaps.dbb.match || gaps.dbb.coverage || 0; gapsList = gaps.dbb.gaps || []; }
+  var html = renderMatchDisplay('DBB Match', match);
+  html += renderGapsList(gapsList);
+  if (dbb && dbb.content) html += '<div class="md-content">' + marked.parse(dbb.content) + '</div>';
+  document.getElementById('pane-dbb').innerHTML = html;
+}
+
+function renderArchitecture(arch, gaps) {
+  var match = 0, gapsList = [];
+  if (gaps && gaps.architecture) { match = gaps.architecture.match || gaps.architecture.coverage || 0; gapsList = gaps.architecture.gaps || []; }
+  var el = document.getElementById('pane-arch');
+  var html = renderMatchDisplay('Architecture Match', match);
+  html += renderGapsList(gapsList);
+
+  var modules = arch.modules || [];
+  if (modules.length > 0) {
+    html += '<div class="module-list">';
+    for (var j = 0; j < modules.length; j++) {
+      var mod = modules[j];
+      var statusCls = mod.status === 'implemented' ? 'implemented' : mod.status === 'missing' ? 'missing' : 'partial';
+      html += '<div class="module-item">' +
+        '<span class="module-name">' + escapeHtml(mod.name) + '</span>' +
+        '<span class="module-status ' + statusCls + '">' + escapeHtml(mod.status || 'partial') + '</span>' +
+        '<span class="module-coverage">' + (mod.coverage || 0) + '%</span></div>';
+    }
+    html += '</div>';
+  }
+
+  if (arch.diagramSvg) html += '<div class="mermaid-wrap">' + arch.diagramSvg + '</div>';
+  if (arch.content) html += '<div class="md-content">' + marked.parse(arch.content) + '</div>';
+  el.innerHTML = html;
+}
+
+// --- Shared Render Helpers ---
+function renderMatchDisplay(label, value) {
+  var colorClass = value > 80 ? 'green' : value > 50 ? 'yellow' : 'red';
+  return '<div class="match-display">' +
+    '<div class="match-label">' + label + '</div>' +
+    '<div class="match-number ' + colorClass + '">' + value + '<span class="pct">%</span></div>' +
+    '<div class="match-bar"><div class="match-bar-fill ' + colorClass + '" style="width:' + value + '%"></div></div></div>';
+}
+
+function renderGapsList(gapsList) {
+  if (!gapsList || gapsList.length === 0) return '';
+  var html = '<ul class="gap-list">';
+  for (var i = 0; i < gapsList.length; i++) {
+    var g = gapsList[i];
+    var text = typeof g === 'string' ? g : g.description || g.details || g.gap || g.module || JSON.stringify(g);
+    html += '<li>' + escapeHtml(text) + '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
+
 // --- Helpers ---
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '';
+  var d = new Date(isoStr);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 }
 
 // --- Daemon Toggle ---
@@ -370,65 +477,6 @@ document.getElementById('toggle-daemon').addEventListener('click', function() {
   });
 });
 
-// --- Auto-refresh every 5 seconds ---
+// --- Auto-refresh ---
 setInterval(refresh, 5000);
 refresh();
-
-// --- Activity Log ---
-var activityOpen = false;
-
-function toggleActivity() {
-  activityOpen = !activityOpen;
-  var list = document.getElementById('activity-list');
-  var toggle = document.querySelector('.activity-toggle');
-  if (activityOpen) {
-    list.classList.add('open');
-    toggle.textContent = '▼ Activity Log';
-    loadHistory();
-  } else {
-    list.classList.remove('open');
-    toggle.textContent = '▶ Activity Log';
-  }
-}
-
-async function loadHistory() {
-  try {
-    var history = await fetch('/history').then(function(r) { return r.json(); }).catch(function() { return []; });
-    renderHistory(history);
-  } catch (err) {
-    console.error('History load error:', err);
-  }
-}
-
-function renderHistory(history) {
-  var el = document.getElementById('activity-list');
-  if (!history || history.length === 0) {
-    el.innerHTML = '<div style="color:#888;font-size:11px;padding:8px;">No activity yet</div>';
-    return;
-  }
-
-  var recent = history.slice(-20).reverse();
-  var html = '';
-  for (var i = 0; i < recent.length; i++) {
-    var entry = recent[i];
-    var dotClass = 'start';
-    if (entry.event === 'agent_complete' || entry.event === 'milestone_complete') dotClass = 'complete';
-    else if (entry.event === 'error') dotClass = 'error';
-    else if (entry.event === 'cr_created') dotClass = 'cr';
-
-    var timeStr = '';
-    if (entry.time) {
-      var d = new Date(entry.time);
-      timeStr = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
-    }
-
-    html += '<div class="activity-item">' +
-      '<span class="activity-time">' + escapeHtml(timeStr) + '</span>' +
-      '<span class="activity-dot ' + dotClass + '"></span>' +
-      '<span>' + escapeHtml((entry.agent || '') + ' ' + (entry.details || '')) + '</span>' +
-    '</div>';
-  }
-  el.innerHTML = html;
-}
-
-setInterval(function() { if (activityOpen) loadHistory(); }, 5000);

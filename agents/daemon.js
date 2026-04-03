@@ -181,7 +181,7 @@ class TeamDaemon {
 
   // --- Notifications ---
 
-  async notify(title, message) {
+  async notify(title, message, event) {
     var config = this.loadWorkflowConfig();
     var notifyConfig = config.notify || {};
 
@@ -190,6 +190,51 @@ class TeamDaemon {
       try {
         execSync('osascript -e \'display notification "' + message + '" with title "DevTeam: ' + title + '"\'');
       } catch {}
+    }
+
+    // Webhooks
+    if (notifyConfig.webhooks && Array.isArray(notifyConfig.webhooks)) {
+      var projectConfig = {};
+      try { projectConfig = JSON.parse(fs.readFileSync(path.join(this.projectDir, '.team/config.json'), 'utf8')); } catch {}
+      var projectName = (projectConfig && projectConfig.name) || path.basename(this.projectDir);
+
+      for (var i = 0; i < notifyConfig.webhooks.length; i++) {
+        var hook = notifyConfig.webhooks[i];
+        if (!hook.url) continue;
+
+        // Event filter
+        var events = hook.events || ['*'];
+        if (events.indexOf('*') === -1 && event && events.indexOf(event) === -1) continue;
+
+        var payload = {
+          project: projectName,
+          title: title,
+          message: message,
+          event: event || 'notification',
+          timestamp: new Date().toISOString()
+        };
+
+        // Fire and forget
+        try {
+          var https = require('https');
+          var http = require('http');
+          var urlMod = require('url');
+          var parsed = urlMod.parse(hook.url);
+          var client = parsed.protocol === 'https:' ? https : http;
+          var postData = JSON.stringify(payload);
+
+          var req = client.request({
+            hostname: parsed.hostname,
+            port: parsed.port,
+            path: parsed.path,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) }
+          }, function() {});
+          req.on('error', function() {});
+          req.write(postData);
+          req.end();
+        } catch {}
+      }
     }
 
     // Write to notifications file (for Momo heartbeat to pick up and send to Discord)
@@ -221,7 +266,7 @@ class TeamDaemon {
         var cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
         if (cr.status === 'pending') {
           this.log('cr_created', cr.from || 'unknown', 'CR ' + (cr.id || f) + ': ' + (cr.reason || 'no reason'));
-          this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'));
+          this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'), 'cr_created');
         }
       } catch {}
     }
@@ -463,7 +508,7 @@ class TeamDaemon {
     this.log('milestone_complete', msId, '=== MILESTONE ' + msId + ' COMPLETE: ' + msName + ' ===');
 
     // Notify
-    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，正在运行四重检查...');
+    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，正在运行四重检查...', 'milestone_complete');
 
     // Ensure review directory exists
     if (ms) {
@@ -503,7 +548,7 @@ class TeamDaemon {
         reviewSummary += gapFiles[g].replace('.json', '') + ': ' + matchVal + '% ';
       } catch {}
     }
-    await this.notify(msName + ' 检查完成', reviewSummary.trim());
+    await this.notify(msName + ' 检查完成', reviewSummary.trim(), 'milestone_review_complete');
 
     // Check for pending CRs (Task 1)
     this.checkPendingCRs();
@@ -556,7 +601,7 @@ class TeamDaemon {
       var lowMonitors = validMatches.filter(function(e) { return e[1] < 50; }).map(function(e) { return e[0]; });
       var warning = 'SUSPICIOUS: ' + highMonitors.join(',') + ' report >90% but ' + lowMonitors.join(',') + ' report <50%';
       this.log('error', 'cross_validation', warning);
-      this.notify('Monitor Cross-Validation Warning', warning);
+      this.notify('Monitor Cross-Validation Warning', warning, 'monitor_warning');
     }
 
     // Verified match = minimum across all monitors

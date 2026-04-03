@@ -42,7 +42,39 @@ function parseMarkdown(filePath) {
 
 function parseArchitecture(content) {
   const mermaidMatch = content.match(/```mermaid\n([\s\S]*?)\n```/);
-  return { diagram: mermaidMatch ? mermaidMatch[1] : '' };
+  const diagram = mermaidMatch ? mermaidMatch[1] : '';
+  
+  // Pre-render mermaid to SVG if available
+  if (diagram) {
+    const svgCache = path.join(projectDir, '.team/arch-diagram.svg');
+    const mmdCache = path.join(projectDir, '.team/arch-diagram.mmd');
+    
+    // Only re-render if mermaid source changed
+    let needsRender = true;
+    try {
+      if (fs.existsSync(mmdCache) && fs.existsSync(svgCache)) {
+        const cached = fs.readFileSync(mmdCache, 'utf8');
+        if (cached === diagram) needsRender = false;
+      }
+    } catch {}
+    
+    if (needsRender) {
+      try {
+        fs.writeFileSync(mmdCache, diagram);
+        const { execSync } = require('child_process');
+        execSync(`mmdc -i "${mmdCache}" -o "${svgCache}" -b transparent --quiet`, { timeout: 15000 });
+      } catch {}
+    }
+    
+    try {
+      if (fs.existsSync(svgCache)) {
+        const svg = fs.readFileSync(svgCache, 'utf8');
+        return { diagram, diagramSvg: svg };
+      }
+    } catch {}
+  }
+  
+  return { diagram, diagramSvg: '' };
 }
 
 function getModuleCompletion() {
@@ -303,6 +335,49 @@ const server = http.createServer((req, res) => {
     // Task 7: GET /history endpoint
     const history = readJSON(path.join(projectDir, '.team/daemon-history.json')) || [];
     sendJSON(history);
+  }
+  else if (pathname === '/pipeline') {
+    // Pipeline view: merge workflow stages + agent status + recent history
+    const configPath = path.join(projectDir, '.team/config.json');
+    const projectConfig = readJSON(configPath) || {};
+    const defaultConfig = readJSON(path.join(__dirname, '../configs/default.json')) || {};
+    const workflow = projectConfig.workflow || defaultConfig.workflow || {};
+    const agents = getAgents();
+    const history = readJSON(path.join(projectDir, '.team/daemon-history.json')) || [];
+
+    // Build pipeline stages from workflow
+    const stages = [
+      { id: 'architecture', name: '架构设计', icon: '🏗️', agents: ['architect'], phase: 'startup' },
+      { id: 'monitoring', name: '监控评估', icon: '📊', agents: ['vision_monitor', 'prd_monitor', 'dbb_monitor', 'arch_monitor'], phase: 'startup' },
+      { id: 'planning', name: '任务规划', icon: '📋', agents: ['pm'], phase: 'startup' },
+      { id: 'design', name: '技术方案', icon: '🔧', agents: ['tech_lead'], phase: 'loop' },
+      { id: 'development', name: '开发实现', icon: '💻', agents: ['developer'], phase: 'loop', scalable: true },
+      { id: 'testing', name: '测试验证', icon: '🧪', agents: ['tester'], phase: 'loop', scalable: true },
+      { id: 'review', name: '评审分配', icon: '🔄', agents: ['pm'], phase: 'loop-end' }
+    ];
+
+    // Enrich each stage with live agent data + recent history
+    const recentHistory = history.slice(-100);
+    const enriched = stages.map(stage => {
+      // Find all agents matching this stage (including scaled like developer-1, developer-2)
+      const stageAgents = [];
+      for (const [name, info] of Object.entries(agents)) {
+        const baseName = name.replace(/-\d+$/, '');
+        if (stage.agents.includes(baseName) || stage.agents.includes(name)) {
+          stageAgents.push({ name, ...info });
+        }
+      }
+      // Recent events for this stage
+      const stageEvents = recentHistory.filter(e => {
+        if (!e.agent) return false;
+        const base = e.agent.replace(/-\d+$/, '');
+        return stage.agents.includes(base) || stage.agents.includes(e.agent);
+      }).slice(-10);
+
+      return { ...stage, liveAgents: stageAgents, recentEvents: stageEvents };
+    });
+
+    sendJSON({ stages: enriched });
   }
   else if (pathname === '/daemon/status') {
     sendJSON({ running: isDaemonRunning() });

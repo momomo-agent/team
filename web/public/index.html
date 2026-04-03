@@ -2,12 +2,11 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title id="page-title">DevTeam</title>
   <link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%234ade80'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-  <script>mermaid.initialize({ startOnLoad: false, theme: 'default' });</script>
   <style>
     :root {
       --bg: #e8e6e1;
@@ -27,56 +26,34 @@
     body { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; font-size: 13px; }
 
     /* Top Bar */
-    .topbar { background: #fff; padding: 10px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 14px; min-height: 48px; box-shadow: 0 1px 3px var(--paper-shadow); }
+    .topbar { background: transparent; padding: 10px 24px; display: flex; align-items: center; gap: 14px; min-height: 48px; }
     .project-name { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; }
     .status-badge { padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; white-space: nowrap; }
     .status-badge.running { background: #dcfce7; color: var(--accent); }
     .status-badge.idle { background: #f3f3f0; color: var(--dim); }
-    .topbar-agents { display: flex; gap: 5px; overflow-x: auto; flex: 1; align-items: center; margin-left: 8px; }
-    .agent-chip { display: flex; align-items: center; gap: 4px; padding: 3px 8px; background: #f5f5f3; border-radius: 6px; white-space: nowrap; font-size: 11px; }
-    .dot { width: 6px; height: 6px; border-radius: 50%; background: #ccc; flex-shrink: 0; }
-    .dot.running { background: var(--accent); box-shadow: 0 0 4px var(--accent); }
-    .dot.error { background: var(--error); }
-    .agent-task-text { color: var(--dim); font-size: 10px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
-    .agent-count { font-size: 11px; color: var(--dim); white-space: nowrap; margin-left: auto; padding-left: 10px; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    .agent-count { font-size: 11px; color: var(--dim); white-space: nowrap; }
     .daemon-btn { padding: 5px 14px; background: #f5f5f3; border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 11px; font-family: inherit; font-weight: 500; }
     .daemon-btn:hover { background: #eee; }
 
     /* Two-column main */
-    .main { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 48px); gap: 24px; padding: 24px; }
+    .main { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 48px); gap: 24px; padding: 0 24px 24px; }
 
     /* Left: folder/article metaphor */
     .col-left { display: flex; flex-direction: column; }
 
     /* Folder tabs */
-    .folder-tabs { display: flex; align-items: flex-end; gap: 0; padding: 0 8px; position: relative; z-index: 1; }
+    .folder-tabs { display: flex; align-items: flex-end; gap: 4px; position: relative; z-index: 1; }
     .folder-tab {
       padding: 8px 18px 10px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      color: var(--dim);
-      background: var(--tab-inactive);
-      border-radius: 8px 8px 0 0;
-      cursor: pointer;
-      position: relative;
-      margin-right: -1px;
-      border: 1px solid var(--border);
-      border-bottom: none;
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--dim); background: var(--tab-inactive);
+      border-radius: 8px 8px 0 0; cursor: pointer; position: relative;
+      border: 1px solid var(--border); border-bottom: none; transition: all 0.15s;
+      display: flex; align-items: center; gap: 6px;
     }
     .folder-tab:hover { background: #e0deda; }
-    .folder-tab.active {
-      background: var(--paper);
-      color: var(--text);
-      z-index: 2;
-      border-color: var(--border);
-      box-shadow: 0 -2px 4px var(--paper-shadow);
-    }
+    .folder-tab.active { background: var(--paper); color: var(--text); z-index: 2; border-color: var(--border); box-shadow: 0 -2px 4px var(--paper-shadow); }
     .tab-match { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 4px; }
     .tab-match.green { background: #dcfce7; color: var(--accent); }
     .tab-match.yellow { background: #fef3c7; color: var(--warn); }
@@ -84,16 +61,10 @@
 
     /* Paper area */
     .paper {
-      flex: 1;
-      background: var(--paper);
-      border-radius: 0 8px 8px 8px;
-      padding: 24px;
-      overflow-y: auto;
-      border: 1px solid var(--border);
-      border-top: none;
-      box-shadow: 0 2px 8px var(--paper-shadow);
-      position: relative;
-      margin-top: -1px;
+      flex: 1; background: var(--paper); border-radius: 0 8px 8px 8px;
+      padding: 24px; overflow-y: auto;
+      border: 1px solid var(--border); border-top: none;
+      box-shadow: 0 2px 8px var(--paper-shadow); position: relative; margin-top: -1px;
     }
     .paper::-webkit-scrollbar { width: 4px; }
     .paper::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
@@ -140,46 +111,101 @@
     /* Mermaid */
     .mermaid-wrap { background: #fafaf8; border-radius: 8px; padding: 12px; border: 1px solid #eee; margin: 12px 0; overflow-x: auto; }
 
-    /* Right column */
-    .col-right { overflow-y: auto; padding-right: 4px; }
-    .col-right::-webkit-scrollbar { width: 4px; }
-    .col-right::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+    /* ====== Right Column ====== */
+    .col-right { display: flex; flex-direction: column; overflow: hidden; }
 
-    /* Section headers */
-    .section-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; margin-bottom: 10px; }
+    /* Right tabs (Pipeline / Kanban / Milestones) */
+    .right-tabs { display: flex; align-items: flex-end; gap: 4px; position: relative; z-index: 1; }
+    .right-tab {
+      padding: 8px 18px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.5px; color: var(--dim); background: var(--tab-inactive);
+      border-radius: 8px 8px 0 0; cursor: pointer;
+      border: 1px solid var(--border); border-bottom: none; transition: all 0.15s;
+    }
+    .right-tab:hover { background: #e0deda; }
+    .right-tab.active { background: var(--paper); color: var(--text); z-index: 2; box-shadow: 0 -2px 4px var(--paper-shadow); }
 
-    /* Milestones — no card wrapper, just clean rows */
-    .ms-list { margin-bottom: 24px; }
-    .ms-row { padding: 10px 0; border-bottom: 1px solid #e0deda; cursor: pointer; transition: background 0.15s; }
-    .ms-row:hover { background: rgba(255,255,255,0.5); margin: 0 -8px; padding: 10px 8px; border-radius: 6px; }
-    .ms-row:last-child { border-bottom: none; }
-    .ms-row.selected { background: rgba(37,99,235,0.06); margin: 0 -8px; padding: 10px 8px; border-radius: 6px; }
-    .ms-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-    .ms-name { font-size: 13px; font-weight: 600; }
-    .ms-status-badge { padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
-    .ms-status-badge.done { background: #dcfce7; color: var(--accent); }
-    .ms-status-badge.active { background: #dbeafe; color: var(--blue); }
-    .ms-status-badge.planned { background: #f3f3f0; color: var(--dim); }
-    .ms-progress { display: flex; align-items: center; gap: 8px; }
-    .ms-bar-bg { flex: 1; height: 3px; background: #e0deda; border-radius: 2px; overflow: hidden; }
-    .ms-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
-    .ms-row.active .ms-bar-fill, .ms-row.selected .ms-bar-fill { background: var(--blue); }
-    .ms-row.done .ms-bar-fill { background: var(--accent); }
-    .ms-row.planned .ms-bar-fill { background: #ccc; }
-    .ms-pct { font-size: 11px; color: var(--dim); min-width: 60px; text-align: right; }
+    .right-paper {
+      flex: 1; background: var(--paper); border-radius: 0 8px 8px 8px;
+      padding: 20px; overflow-y: auto;
+      border: 1px solid var(--border); border-top: none;
+      box-shadow: 0 2px 8px var(--paper-shadow); margin-top: -1px;
+    }
+    .right-paper::-webkit-scrollbar { width: 4px; }
+    .right-paper::-webkit-scrollbar-thumb { background: #ccc; border-radius: 2px; }
+    .right-pane { display: none; }
+    .right-pane.active { display: block; }
 
-    /* Kanban header */
+    /* ====== Pipeline View ====== */
+    .pipeline-stage {
+      border: 1px solid var(--border); border-radius: 10px; margin-bottom: 10px;
+      overflow: hidden; transition: all 0.2s;
+    }
+    .pipeline-stage.has-active { border-color: var(--blue); box-shadow: 0 0 0 1px rgba(37,99,235,0.15); }
+    .pipeline-stage.has-error { border-color: var(--error); }
+
+    .stage-header {
+      display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+      background: #fafaf8; cursor: pointer; user-select: none;
+    }
+    .stage-header:hover { background: #f5f5f3; }
+    .stage-icon { font-size: 16px; flex-shrink: 0; }
+    .stage-name { font-size: 12px; font-weight: 600; flex: 1; }
+    .stage-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .stage-status-dot.idle { background: #d4d2cd; }
+    .stage-status-dot.running { background: var(--accent); box-shadow: 0 0 6px var(--accent); animation: pulse 1.5s infinite; }
+    .stage-status-dot.error { background: var(--error); }
+    .stage-status-dot.waiting { background: var(--warn); opacity: 0.6; }
+
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    .stage-body { padding: 0 14px 12px; }
+
+    /* Agent in pipeline */
+    .pipeline-agent {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+      background: #fafaf8; border-radius: 6px; margin-top: 6px; font-size: 12px;
+    }
+    .pipeline-agent.running { background: #f0fdf4; border: 1px solid #bbf7d0; }
+    .pipeline-agent.error { background: #fef2f2; border: 1px solid #fecaca; }
+    .pipeline-agent.retrying { background: #fffbeb; border: 1px solid #fde68a; }
+
+    .pa-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+    .pa-dot.running { background: var(--accent); animation: pulse 1.5s infinite; }
+    .pa-dot.idle { background: #d4d2cd; }
+    .pa-dot.error { background: var(--error); }
+    .pa-dot.retrying { background: var(--warn); animation: pulse 1s infinite; }
+    .pa-name { font-weight: 600; min-width: 80px; }
+    .pa-task { color: var(--dim); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pa-time { color: var(--dim); font-size: 10px; white-space: nowrap; }
+
+    /* Stage event log (collapsed by default) */
+    .stage-events { margin-top: 8px; padding-top: 6px; border-top: 1px solid #eee; }
+    .stage-event { display: flex; gap: 6px; font-size: 10px; color: var(--dim); padding: 2px 0; align-items: center; }
+    .se-time { min-width: 40px; }
+    .se-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .se-dot.agent_start { background: var(--blue); }
+    .se-dot.agent_complete { background: var(--accent); }
+    .se-dot.error { background: var(--error); }
+    .se-dot.milestone_complete { background: var(--warn); }
+
+    /* Stage empty state */
+    .stage-empty { font-size: 11px; color: var(--dim); padding: 4px 0; font-style: italic; }
+
+    /* Pipeline connector line */
+    .pipeline-connector { width: 1px; height: 10px; background: var(--border); margin: 0 auto; }
+
+    /* ====== Kanban ====== */
     .kanban-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
     .kanban-stats { display: flex; gap: 12px; font-size: 11px; color: var(--dim); }
     .kanban-stats strong { color: var(--text); font-weight: 700; margin-right: 2px; }
+    .section-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
 
-    /* Kanban grid — no card on columns */
     .kanban-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
     .kanban-col { min-height: 60px; }
     .kanban-col-title { font-size: 10px; color: var(--dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; border-bottom: 2px solid #e0deda; }
     .kanban-count { font-size: 10px; color: var(--dim); font-weight: 600; }
 
-    /* Task cards — only tasks have cards */
     .task { padding: 10px; border-radius: 8px; margin-bottom: 6px; background: var(--paper); border: 1px solid var(--border); font-size: 12px; box-shadow: 0 1px 3px var(--paper-shadow); transition: box-shadow 0.15s; }
     .task:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .task-title { font-weight: 500; margin-bottom: 5px; line-height: 1.4; }
@@ -191,32 +217,120 @@
     .task-ms { padding: 1px 5px; border-radius: 3px; font-size: 9px; background: #dbeafe; color: var(--blue); }
     .task-assignee { color: var(--dim); }
 
-    /* Activity log */
-    .activity-section { margin-top: 24px; }
-    .activity-toggle { font-size: 11px; color: var(--dim); cursor: pointer; display: flex; align-items: center; gap: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-    .activity-toggle:hover { color: var(--text); }
-    .activity-list { max-height: 0; overflow: hidden; transition: max-height 0.3s; }
-    .activity-list.open { max-height: 400px; overflow-y: auto; }
-    .activity-item { padding: 4px 0; font-size: 11px; color: #666; display: flex; gap: 8px; align-items: baseline; border-bottom: 1px solid #f0f0ee; }
-    .activity-time { color: var(--dim); font-size: 10px; min-width: 50px; }
-    .activity-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 4px; }
-    .activity-dot.complete { background: var(--accent); }
-    .activity-dot.error { background: var(--error); }
-    .activity-dot.start { background: var(--blue); }
-    .activity-dot.cr { background: var(--warn); }
+    /* Milestone filter bar in kanban */
+    .ms-filter-bar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+    .ms-filter-chip { padding: 3px 10px; border-radius: 12px; font-size: 10px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); background: #f5f5f3; color: var(--dim); transition: all 0.15s; }
+    .ms-filter-chip:hover { background: #eee; }
+    .ms-filter-chip.active { background: #dbeafe; color: var(--blue); border-color: var(--blue); }
+
+    /* ====== Milestones ====== */
+    .ms-list { margin-bottom: 24px; }
+    .ms-row { padding: 10px 0; border-bottom: 1px solid #e0deda; cursor: default; }
+    .ms-row:last-child { border-bottom: none; }
+    .ms-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .ms-name { font-size: 13px; font-weight: 600; }
+    .ms-status-badge { padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+    .ms-status-badge.done { background: #dcfce7; color: var(--accent); }
+    .ms-status-badge.active { background: #dbeafe; color: var(--blue); }
+    .ms-status-badge.planned { background: #f3f3f0; color: var(--dim); }
+    .ms-progress { display: flex; align-items: center; gap: 8px; }
+    .ms-bar-bg { flex: 1; height: 3px; background: #e0deda; border-radius: 2px; overflow: hidden; }
+    .ms-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+    .ms-row.active .ms-bar-fill { background: var(--blue); }
+    .ms-row.done .ms-bar-fill { background: var(--accent); }
+    .ms-row.planned .ms-bar-fill { background: #ccc; }
+    .ms-pct { font-size: 11px; color: var(--dim); min-width: 60px; text-align: right; }
+
+    /* Milestone task list */
+    .ms-tasks { margin-top: 8px; padding-left: 12px; }
+    .ms-task-item { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 11px; }
+    .ms-task-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .ms-task-dot.done { background: var(--accent); }
+    .ms-task-dot.in-progress { background: var(--blue); }
+    .ms-task-dot.todo { background: var(--border); }
+    .ms-task-name { color: #555; }
+    .ms-task-name.done { text-decoration: line-through; color: var(--dim); }
+
+    /* ====== Mobile ====== */
+    @media (max-width: 768px) {
+      body { height: auto; overflow: auto; }
+
+      .topbar { padding: 10px 16px; gap: 8px; flex-wrap: wrap; }
+      .project-name { font-size: 14px; }
+
+      .main {
+        display: flex; flex-direction: column;
+        height: auto; min-height: calc(100vh - 48px);
+        padding: 0 12px 12px; gap: 0;
+      }
+
+      /* Hide separate tab bars on mobile */
+      .folder-tabs, .right-tabs { display: none; }
+
+      /* Show unified mobile tab bar */
+      .mobile-tabs {
+        display: flex !important; align-items: center; gap: 3px;
+        overflow-x: auto; -webkit-overflow-scrolling: touch;
+        padding: 8px 0 0; position: sticky; top: 0; z-index: 10;
+        background: var(--bg);
+      }
+      .mobile-tabs::-webkit-scrollbar { display: none; }
+      .mobile-tab {
+        padding: 7px 12px 9px; font-size: 10px; font-weight: 600;
+        text-transform: uppercase; letter-spacing: 0.3px;
+        color: var(--dim); background: var(--tab-inactive);
+        border-radius: 8px 8px 0 0; cursor: pointer; white-space: nowrap;
+        border: 1px solid var(--border); border-bottom: none; flex-shrink: 0;
+      }
+      .mobile-tab:hover { background: #e0deda; }
+      .mobile-tab.active { background: var(--paper); color: var(--text); box-shadow: 0 -2px 4px var(--paper-shadow); }
+      .mobile-tab .tab-match { font-size: 9px; margin-left: 3px; }
+
+      /* Single paper container on mobile */
+      .col-left, .col-right { display: none; }
+      .mobile-paper {
+        display: block !important;
+        background: var(--paper); border-radius: 0 0 8px 8px;
+        padding: 16px; min-height: 60vh;
+        border: 1px solid var(--border); border-top: none;
+        box-shadow: 0 2px 8px var(--paper-shadow); margin-top: -1px;
+      }
+
+      /* Kanban: stack columns vertically on mobile */
+      .kanban-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .ms-filter-bar { gap: 4px; }
+      .ms-filter-chip { font-size: 9px; padding: 3px 8px; }
+    }
+
+    /* Desktop: hide mobile elements */
+    .mobile-tabs { display: none; }
+    .mobile-paper { display: none; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <span class="project-name" id="project-name">DevTeam</span>
     <span class="status-badge idle" id="status-badge">IDLE</span>
-    <div class="topbar-agents" id="agent-bar"></div>
-    <span class="agent-count" id="agent-count"></span>
-    <button id="toggle-daemon" class="daemon-btn">Start</button>
+    <div class="topbar-right">
+      <span class="agent-count" id="agent-count"></span>
+      <button id="toggle-daemon" class="daemon-btn">Start</button>
+    </div>
   </div>
 
   <div class="main">
-    <!-- Left: Folder -->
+    <!-- Mobile: unified tab bar + single paper (right tabs first, then left) -->
+    <div class="mobile-tabs" id="mobile-tab-bar">
+      <div class="mobile-tab active" data-mtab="pipeline">Pipeline</div>
+      <div class="mobile-tab" data-mtab="kanban">Kanban</div>
+      <div class="mobile-tab" data-mtab="milestones">Milestones</div>
+      <div class="mobile-tab" data-mtab="vision">Vision <span class="tab-match" id="m-tab-match-vision">—</span></div>
+      <div class="mobile-tab" data-mtab="prd">PRD <span class="tab-match" id="m-tab-match-prd">—</span></div>
+      <div class="mobile-tab" data-mtab="dbb">DBB <span class="tab-match" id="m-tab-match-dbb">—</span></div>
+      <div class="mobile-tab" data-mtab="arch">Arch <span class="tab-match" id="m-tab-match-arch">—</span></div>
+    </div>
+    <div class="mobile-paper" id="mobile-paper"></div>
+
+    <!-- Desktop: Left column -->
     <div class="col-left">
       <div class="folder-tabs" id="tab-bar">
         <div class="folder-tab active" data-tab="vision">Vision <span class="tab-match" id="tab-match-vision">—</span></div>
@@ -232,18 +346,17 @@
       </div>
     </div>
 
-    <!-- Right: Board -->
+    <!-- Right: Pipeline / Kanban / Milestones -->
     <div class="col-right">
-      <div class="section-label">Milestones</div>
-      <div class="ms-list" id="milestone-content"></div>
-      <div class="kanban-header">
-        <div class="section-label" id="kanban-header">Kanban</div>
-        <div class="kanban-stats" id="kanban-stats"></div>
+      <div class="right-tabs" id="right-tab-bar">
+        <div class="right-tab active" data-rtab="pipeline">Pipeline</div>
+        <div class="right-tab" data-rtab="kanban">Kanban</div>
+        <div class="right-tab" data-rtab="milestones">Milestones</div>
       </div>
-      <div id="kanban-content"></div>
-      <div class="activity-section" id="activity-section">
-        <div class="activity-toggle" onclick="toggleActivity()">▶ Activity Log</div>
-        <div class="activity-list" id="activity-list"></div>
+      <div class="right-paper">
+        <div class="right-pane active" id="rpane-pipeline"></div>
+        <div class="right-pane" id="rpane-kanban"></div>
+        <div class="right-pane" id="rpane-milestones"></div>
       </div>
     </div>
   </div>

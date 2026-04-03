@@ -84,6 +84,7 @@
   },
   "notify": {
     "discord": { "channel": "" },
-    "macos": true
+    "macos": true,
+    "webhooks": []
   }
 }
