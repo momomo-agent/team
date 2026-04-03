@@ -201,6 +201,10 @@ async function refresh() {
     if (docItems.length > 0) {
       docItems.forEach(function(docConfig, i) {
         if (docs[i]) {
+          renderDoc(docConfig.id, docs[i], docConfig);
+        }
+      });
+    }
           renderDoc(docConfig.id, docs[i], gaps);
         }
       });
