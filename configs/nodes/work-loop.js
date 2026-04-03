@@ -48,6 +48,7 @@ module.exports = {
     if (ctx.todoCount === 0 && ctx.reviewCount === 0) {
       return 'standby';
     }
-    return 'work_loop';
+    // 继续循环：返回 null 或 undefined
+    return null;
   }
 };

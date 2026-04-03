@@ -417,6 +417,11 @@ class TeamDaemon {
     } else {
       // v2.0: 使用原有逻辑
       var startup = config.workflow.startup;
+      
+      if (!startup || !Array.isArray(startup)) {
+        this.log('error', 'workflow', 'Invalid v2.0 config: workflow.startup must be an array');
+        return;
+      }
 
       // Execute startup steps sequentially
       for (var i = 0; i < startup.length; i++) {
