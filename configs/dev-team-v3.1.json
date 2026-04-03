@@ -2,7 +2,6 @@
   "version": "3.1",
   "name": "dev-team",
   "description": "AI 开发团队 - 多组件支持",
-  
   "dashboard": {
     "left": [
       {
@@ -54,7 +53,7 @@
         ],
         "badge": {
           "source": ".team/gaps/architecture.json",
-          "field": "coverage"
+          "field": "match"
         }
       }
     ],
@@ -88,7 +87,6 @@
       }
     ]
   },
-  
   "workflow": {
     "entry": "startup",
     "nodes": {
@@ -98,33 +96,62 @@
       "standby": "nodes/standby.json"
     }
   },
-  
   "agents": {
-    "architect": { "prompt": "prompts/architect.md", "model": "claude-sonnet-4" },
-    "vision_monitor": { "prompt": "prompts/vision_monitor.md", "model": "claude-sonnet-4" },
-    "prd_monitor": { "prompt": "prompts/prd_monitor.md", "model": "claude-sonnet-4" },
-    "dbb_monitor": { "prompt": "prompts/dbb_monitor.md", "model": "claude-sonnet-4" },
-    "arch_monitor": { "prompt": "prompts/arch_monitor.md", "model": "claude-sonnet-4" },
-    "pm": { "prompt": "prompts/pm.md", "model": "claude-sonnet-4" },
-    "tech_lead": { "prompt": "prompts/tech_lead.md", "model": "claude-sonnet-4" },
-    "developer": { "prompt": "prompts/developer.md", "model": "claude-sonnet-4", "scalable": true },
-    "tester": { "prompt": "prompts/tester.md", "model": "claude-sonnet-4", "scalable": true }
+    "architect": {
+      "prompt": "prompts/architect.md",
+      "model": "claude-sonnet-4"
+    },
+    "vision_monitor": {
+      "prompt": "prompts/vision_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "prd_monitor": {
+      "prompt": "prompts/prd_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "dbb_monitor": {
+      "prompt": "prompts/dbb_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "arch_monitor": {
+      "prompt": "prompts/arch_monitor.md",
+      "model": "claude-sonnet-4"
+    },
+    "pm": {
+      "prompt": "prompts/pm.md",
+      "model": "claude-sonnet-4"
+    },
+    "tech_lead": {
+      "prompt": "prompts/tech_lead.md",
+      "model": "claude-sonnet-4"
+    },
+    "developer": {
+      "prompt": "prompts/developer.md",
+      "model": "claude-sonnet-4",
+      "scalable": true
+    },
+    "tester": {
+      "prompt": "prompts/tester.md",
+      "model": "claude-sonnet-4",
+      "scalable": true
+    }
   },
-  
   "docs": {
     "root": ".team/docs"
   },
-  
   "monitor": {
     "root": ".team/monitor",
-    "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"]
+    "agents": [
+      "vision_monitor",
+      "prd_monitor",
+      "dbb_monitor",
+      "arch_monitor"
+    ]
   },
-  
   "git": {
     "commitPerTask": true,
     "tagPerMilestone": true
   },
-  
   "notify": {
     "webhooks": [],
     "macos": true
