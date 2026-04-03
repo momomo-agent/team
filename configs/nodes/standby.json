@@ -1,0 +1,6 @@
+{
+  "type": "wait",
+  "description": "待机",
+  "trigger": "new_task",
+  "next": "work_loop"
+}

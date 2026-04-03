@@ -14,7 +14,6 @@
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const WorkflowEngine = require('./workflow-engine-v3');
 
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
 const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
@@ -396,47 +395,37 @@ class TeamDaemon {
   async onProjectStart() {
     this.log('milestone_complete', null, '=== PROJECT START ===');
 
-    // 检查配置版本
     var config = this.loadWorkflowConfig();
-    
-    if (config.version === '3.0') {
-      // v3.0: 使用 WorkflowEngine
-      this.log('agent_start', 'workflow', 'Using v3.0 WorkflowEngine');
-      const engine = new WorkflowEngine(config, this);
-      await engine.execute();
-    } else {
-      // v2.0: 使用原有逻辑
-      var startup = config.workflow.startup;
+    var startup = config.workflow.startup;
 
-      // Execute startup steps sequentially
-      for (var i = 0; i < startup.length; i++) {
-        var step = startup[i];
+    // Execute startup steps sequentially
+    for (var i = 0; i < startup.length; i++) {
+      var step = startup[i];
 
-        // Check condition
-        if (step.condition && !this.evaluateCondition(step.condition)) {
-          this.log('agent_complete', step.agents.join(','), 'Condition not met (' + step.condition + '), skipping');
-          continue;
-        }
-
-        if (step.parallel) {
-          // Run all agents in parallel
-          this.log('agent_start', step.agents.join(','), 'Running in parallel...');
-          var parallelPromises = [];
-          for (var j = 0; j < step.agents.length; j++) {
-            parallelPromises.push(this.runAgent(step.agents[j]));
-          }
-          await Promise.all(parallelPromises);
-        } else {
-          // Run agents serially
-          for (var k = 0; k < step.agents.length; k++) {
-            await this.runAgent(step.agents[k]);
-          }
-        }
+      // Check condition
+      if (step.condition && !this.evaluateCondition(step.condition)) {
+        this.log('agent_complete', step.agents.join(','), 'Condition not met (' + step.condition + '), skipping');
+        continue;
       }
 
-      // Enter work loop
-      await this.workLoop();
+      if (step.parallel) {
+        // Run all agents in parallel
+        this.log('agent_start', step.agents.join(','), 'Running in parallel...');
+        var parallelPromises = [];
+        for (var j = 0; j < step.agents.length; j++) {
+          parallelPromises.push(this.runAgent(step.agents[j]));
+        }
+        await Promise.all(parallelPromises);
+      } else {
+        // Run agents serially
+        for (var k = 0; k < step.agents.length; k++) {
+          await this.runAgent(step.agents[k]);
+        }
+      }
     }
+
+    // Enter work loop
+    await this.workLoop();
   }
 
   async workLoop() {

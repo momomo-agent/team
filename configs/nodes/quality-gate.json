@@ -1,0 +1,16 @@
+{
+  "type": "sequence",
+  "description": "质量门禁",
+  "steps": [
+    {
+      "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
+      "parallel": true,
+      "description": "四重检查"
+    },
+    {
+      "agents": ["pm"],
+      "description": "汇总 gaps 并规划下一步"
+    }
+  ],
+  "next": "work_loop"
+}
