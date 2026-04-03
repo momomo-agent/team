@@ -104,17 +104,32 @@
   },
   "workflow": {
     "startup": [
-      { "agents": ["architect"], "parallel": false, "condition": "no-architecture" },
-      { "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"], "parallel": true },
-      { "agents": ["pm"], "parallel": false }
+      {
+        "agents": ["architect"],
+        "parallel": false,
+        "condition": "no-architecture",
+        "description": "架构设计（如果没有架构文档）"
+      },
+      {
+        "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
+        "parallel": true,
+        "description": "初始评估（并行评估所有文档）"
+      },
+      {
+        "agents": ["pm"],
+        "parallel": false,
+        "description": "规划里程碑"
+      }
     ],
     "loop": {
       "parallel": ["tech_lead", "developer", "tester"],
-      "then": ["pm"]
+      "then": ["pm"],
+      "description": "工作循环：并行开发 → PM 同步进度"
     },
     "milestoneCheck": {
       "parallel": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
-      "then": ["pm"]
+      "then": ["pm"],
+      "description": "里程碑检查：质量评估 → PM 决策"
     }
   },
   "git": {
@@ -122,7 +137,6 @@
     "tagPerMilestone": true
   },
   "notify": {
-    "openclaw": { "sessionKey": "" },
     "webhooks": [],
     "macos": true
   }
