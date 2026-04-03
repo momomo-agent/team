@@ -252,6 +252,15 @@ async function refresh() {
           var comp = tab.components[j];
           await renderComponent(pane, comp, gaps);
         }
+        
+        // 更新 badge
+        if (tab.badge) {
+          var badgeData = await fetch('/file/' + tab.badge.source).then(function(r) { return r.json(); }).catch(function() { return {}; });
+          var badgeValue = badgeData[tab.badge.field];
+          if (badgeValue != null) {
+            updateTabBadge(tabId, badgeValue);
+          }
+        }
       }
       // v3.0/v2.0: 单组件（兼容）
       else if (tab.path || tab.file) {
@@ -356,6 +365,18 @@ function updateTabMatches(status, gaps) {
     var mel = document.getElementById('m-tab-match-' + key);
     if (mel) { mel.textContent = val + '%'; mel.className = 'tab-match ' + colorClass; }
   });
+}
+
+// v3.1: 更新单个 tab 的 badge
+function updateTabBadge(tabId, value) {
+  var val = Math.round(value);
+  var colorClass = val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
+  
+  var el = document.getElementById('tab-match-' + tabId);
+  if (el) {
+    el.textContent = val + '%';
+    el.className = 'tab-match ' + colorClass;
+  }
 }
 
 // ====== PIPELINE VIEW ======

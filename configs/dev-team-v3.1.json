@@ -12,7 +12,11 @@
             "component": "MarkdownView",
             "path": "VISION.md"
           }
-        ]
+        ],
+        "badge": {
+          "source": ".team/gaps/vision.json",
+          "field": "match"
+        }
       },
       {
         "title": "产品需求",
@@ -21,7 +25,11 @@
             "component": "MarkdownView",
             "path": "PRD.md"
           }
-        ]
+        ],
+        "badge": {
+          "source": ".team/gaps/prd.json",
+          "field": "match"
+        }
       },
       {
         "title": "预期验收",
@@ -30,7 +38,11 @@
             "component": "MarkdownView",
             "path": "EXPECTED_DBB.md"
           }
-        ]
+        ],
+        "badge": {
+          "source": ".team/gaps/dbb.json",
+          "field": "match"
+        }
       },
       {
         "title": "技术架构",
@@ -39,7 +51,11 @@
             "component": "MarkdownView",
             "path": "ARCHITECTURE.md"
           }
-        ]
+        ],
+        "badge": {
+          "source": ".team/gaps/architecture.json",
+          "field": "coverage"
+        }
       }
     ],
     "right": [
