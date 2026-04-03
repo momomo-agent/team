@@ -578,6 +578,76 @@ function crDecision(id, decision) {
   console.log(`CR ${id} ${cr.status}`);
 }
 
+function configCommand() {
+  const dir = requireProject();
+  const configPath = path.join(dir, '.team/config.json');
+  const config = readJSON(configPath) || {};
+
+  // config list
+  // config get <path>
+  // config <path> <value>
+  
+  if (subcommand === 'list') {
+    console.log(JSON.stringify(config, null, 2));
+    return;
+  }
+
+  if (subcommand === 'get') {
+    const configKey = process.argv[4];
+    if (!configKey) {
+      console.error('Usage: team config get <path>');
+      process.exit(1);
+    }
+    const value = getNestedValue(config, configKey);
+    console.log(JSON.stringify(value, null, 2));
+    return;
+  }
+
+  // Default: set value (subcommand is the path)
+  const configKey = subcommand;
+  const configValue = process.argv[4];
+
+  if (!configKey || !configValue) {
+    console.error('Usage: team config <path> <value>');
+    console.error('       team config get <path>');
+    console.error('       team config list');
+    process.exit(1);
+  }
+
+  setNestedValue(config, configKey, configValue);
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+  console.log(`Set ${configKey} = ${JSON.stringify(getNestedValue(config, configKey))}`);
+}
+
+function getNestedValue(obj, path) {
+  const keys = path.split('.');
+  let current = obj;
+  for (const key of keys) {
+    if (current == null) return undefined;
+    current = current[key];
+  }
+  return current;
+}
+
+function setNestedValue(obj, path, value) {
+  const keys = path.split('.');
+  let current = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if (current[key] == null || typeof current[key] !== 'object') {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+  const lastKey = keys[keys.length - 1];
+  // Try to parse as JSON, fallback to string
+  try {
+    current[lastKey] = JSON.parse(value);
+  } catch {
+    current[lastKey] = value;
+  }
+}
+
 function web() {
   const dir = requireProject();
   const serverPath = path.join(DEVTEAM_ROOT, 'web/server.js');
@@ -668,6 +738,10 @@ switch (command) {
     }
     break;
 
+  case 'config':
+    configCommand();
+    break;
+
   case 'web':
     web();
     break;
@@ -698,6 +772,11 @@ switch (command) {
     console.log('  team start [--devs N]             Start daemon');
     console.log('  team stop                         Stop daemon');
     console.log('  team agents                       Agent status');
+    console.log('');
+    console.log('Configuration:');
+    console.log('  team config <path> <value>        Set config value');
+    console.log('  team config get <path>            Get config value');
+    console.log('  team config list                  List all config');
     console.log('');
     console.log('Monitoring:');
     console.log('  team gaps [--level L0|L1|L2|L3]   View gaps');

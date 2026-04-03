@@ -185,14 +185,19 @@ class TeamDaemon {
     var config = this.loadWorkflowConfig();
     var notifyConfig = config.notify || {};
 
-    // macOS notification
-    if (notifyConfig.macos) {
+    // Priority 1: OpenClaw session
+    if (notifyConfig.openclaw && notifyConfig.openclaw.sessionKey) {
       try {
-        execSync('osascript -e \'display notification "' + message + '" with title "DevTeam: ' + title + '"\'');
-      } catch {}
+        var sessionKey = notifyConfig.openclaw.sessionKey;
+        var notifyMsg = '[DevTeam: ' + title + '] ' + message;
+        execSync('openclaw sessions send --session "' + sessionKey + '" "' + notifyMsg.replace(/"/g, '\\"') + '"', { timeout: 5000 });
+      } catch (err) {
+        // Fallback to other methods if OpenClaw fails
+        console.error('[notify] OpenClaw failed:', err.message);
+      }
     }
 
-    // Webhooks
+    // Priority 2: Webhooks
     if (notifyConfig.webhooks && Array.isArray(notifyConfig.webhooks)) {
       var projectConfig = {};
       try { projectConfig = JSON.parse(fs.readFileSync(path.join(this.projectDir, '.team/config.json'), 'utf8')); } catch {}
@@ -237,18 +242,12 @@ class TeamDaemon {
       }
     }
 
-    // Write to notifications file (for Momo heartbeat to pick up and send to Discord)
-    var notifPath = path.join(this.projectDir, '.team/notifications.json');
-    var notifs = [];
-    try { notifs = JSON.parse(fs.readFileSync(notifPath, 'utf8')); } catch {}
-    notifs.push({
-      title: title,
-      message: message,
-      channel: notifyConfig.discord && notifyConfig.discord.channel ? notifyConfig.discord.channel : null,
-      timestamp: new Date().toISOString(),
-      sent: false
-    });
-    fs.writeFileSync(notifPath, JSON.stringify(notifs, null, 2));
+    // Priority 3: macOS notification (always run if enabled)
+    if (notifyConfig.macos) {
+      try {
+        execSync('osascript -e \'display notification "' + message + '" with title "DevTeam: ' + title + '"\'');
+      } catch {}
+    }
   }
 
   // --- CR Checking (Task 1) ---

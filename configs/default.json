@@ -83,8 +83,10 @@
     "tagPerMilestone": true
   },
   "notify": {
-    "discord": { "channel": "" },
-    "macos": true,
-    "webhooks": []
+    "openclaw": {
+      "sessionKey": ""
+    },
+    "webhooks": [],
+    "macos": true
   }
 }
