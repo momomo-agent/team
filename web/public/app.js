@@ -15,7 +15,9 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   teamConfig = config;
   
   // 显示 workflow 名称
-  if (config.workflow && config.workflow.name) {
+  if (config.name) {
+    document.getElementById('workflow-name').textContent = config.name;
+  } else if (config.workflow && config.workflow.name) {
     document.getElementById('workflow-name').textContent = config.workflow.name;
   } else if (config.workflow && config.workflow.entry) {
     document.getElementById('workflow-name').textContent = 'Workflow: ' + config.workflow.entry;
