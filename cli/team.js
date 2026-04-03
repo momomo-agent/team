@@ -156,14 +156,15 @@ function status() {
 
   // Gaps / Match percentages
   const gaps = {};
-  for (const level of ['vision', 'prd', 'architecture']) {
+  for (const level of ['vision', 'prd', 'dbb', 'architecture']) {
     const g = readJSON(path.join(dir, `.team/gaps/${level}.json`));
-    gaps[level] = g ? g.match : '-';
+    gaps[level] = g ? (g.match != null ? g.match : (g.coverage != null ? g.coverage : '-')) : '-';
   }
 
   console.log('  Match:');
   console.log(`    L0 Vision:       ${gaps.vision}%`);
   console.log(`    L1 PRD:          ${gaps.prd}%`);
+  console.log(`    DBB:             ${gaps.dbb}%`);
   console.log(`    L2 Architecture: ${gaps.architecture}%`);
 
   // Milestones
@@ -446,6 +447,7 @@ function showGaps() {
   const gapFiles = {
     L0: 'vision.json',
     L1: 'prd.json',
+    DBB: 'dbb.json',
     L2: 'architecture.json'
   };
 
@@ -460,6 +462,8 @@ function showGaps() {
         for (const gap of data.gaps) {
           if (typeof gap === 'string') {
             console.log(`    - ${gap}`);
+          } else if (gap.description) {
+            console.log(`    - ${gap.description} [${gap.status || ''}]`);
           } else if (gap.module) {
             console.log(`    - ${gap.module}: ${gap.status} (${gap.coverage || ''})`);
           } else if (gap.feature) {
@@ -545,7 +549,7 @@ function crList() {
     const cr = readJSON(path.join(crDir, f));
     if (cr) {
       const icon = cr.status === 'approved' ? '✅' : cr.status === 'rejected' ? '❌' : '⏳';
-      console.log(`  ${icon} ${f.replace('.json', '')}: [${cr.status}] from=${cr.from} to=${cr.to}`);
+      console.log(`  ${icon} ${f.replace('.json', '')}: [${cr.status}] from=${cr.from} toLevel=${cr.toLevel || cr.to}`);
       console.log(`     ${cr.reason}`);
     }
   }
@@ -568,7 +572,8 @@ function crDecision(id, decision) {
   if (!cr) { console.error(`CR ${id} not found`); return; }
 
   cr.status = decision === 'approve' ? 'approved' : 'rejected';
-  cr.decidedAt = new Date().toISOString();
+  cr.reviewedAt = new Date().toISOString();
+  cr.reviewedBy = 'user';
   fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
   console.log(`CR ${id} ${cr.status}`);
 }

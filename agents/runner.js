@@ -14,7 +14,7 @@ const path = require('path');
 // Each agent can ONLY write to these paths. Prompt enforces this.
 const PERMISSIONS = {
   architect: {
-    write: ['ARCHITECTURE.md'],
+    write: ['ARCHITECTURE.md', '.team/change-requests/'],
     read: ['VISION.md', 'PRD.md', 'EXPECTED_DBB.md']
   },
   pm: {
@@ -22,7 +22,8 @@ const PERMISSIONS = {
       '.team/milestones/milestones.json',
       '.team/milestones/*/overview.md',
       '.team/kanban.json',
-      '.team/tasks/*/task.json'
+      '.team/tasks/*/task.json',
+      '.team/change-requests/'
     ],
     read: ['ARCHITECTURE.md', '.team/gaps/', '.team/milestones/', '.team/tasks/']
   },
@@ -37,11 +38,11 @@ const PERMISSIONS = {
     read: ['ARCHITECTURE.md', '.team/milestones/', '.team/tasks/', '.team/kanban.json']
   },
   developer: {
-    write: ['src/', 'lib/', 'test/', '.team/tasks/*/progress.md', '.team/tasks/*/task.json'],
+    write: ['src/', 'lib/', 'test/', '.team/tasks/*/progress.md', '.team/tasks/*/task.json', '.team/change-requests/'],
     read: ['.team/tasks/*/design.md', '.team/tasks/*/task.json', '.team/kanban.json', 'ARCHITECTURE.md']
   },
   tester: {
-    write: ['test/', '.team/tasks/*/test-result.md', '.team/tasks/*/task.json'],
+    write: ['test/', '.team/tasks/*/test-result.md', '.team/tasks/*/task.json', '.team/gaps/test-coverage.json', '.team/change-requests/'],
     read: ['.team/milestones/*/dbb.md', '.team/tasks/*/design.md', '.team/kanban.json']
   },
   vision_monitor: {
@@ -89,7 +90,23 @@ Rules:
 - NEVER overwrite an existing substantial ARCHITECTURE.md
 - Each module must list its file paths and key functions
 - Document dependencies clearly for PM and developers
-- You CANNOT modify VISION.md, PRD.md, or any .team/ files`,
+- You CANNOT modify VISION.md, PRD.md, or any .team/ files
+
+CHANGE REQUEST (CR): If you discover that a lower layer constraint cannot be satisfied by the upper layer documents (e.g., VISION.md or PRD.md has contradictions or missing specs), you may submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+{
+  "id": "cr-{timestamp}",
+  "from": "architect",
+  "fromLevel": "L2",
+  "toLevel": "L0 or L1",
+  "targetFile": "VISION.md or PRD.md",
+  "reason": "why the change is needed",
+  "proposedChange": "what should change",
+  "status": "pending",
+  "createdAt": "<ISO timestamp>",
+  "reviewedAt": null,
+  "reviewedBy": null
+}
+Do NOT modify upper layer files directly — only submit CRs.`,
 
   pm: (projectDir) => {
     const milestonesDir = path.join(projectDir, '.team/milestones');
@@ -136,7 +153,23 @@ Milestone rules:
 - Each milestone 3-5 tasks, targeting specific gaps
 - Include acceptance criteria from architecture specs
 - Set blockedBy for dependent tasks
-- Milestones should be shippable when possible`;
+- Milestones should be shippable when possible
+
+CHANGE REQUEST (CR): If you discover that architecture or PRD constraints prevent effective milestone planning, submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+{
+  "id": "cr-{timestamp}",
+  "from": "pm",
+  "fromLevel": "L3",
+  "toLevel": "L1 or L2",
+  "targetFile": "PRD.md or ARCHITECTURE.md",
+  "reason": "why the change is needed",
+  "proposedChange": "what should change",
+  "status": "pending",
+  "createdAt": "<ISO timestamp>",
+  "reviewedAt": null,
+  "reviewedBy": null
+}
+Do NOT modify upper layer files directly — only submit CRs.`;
   },
 
   tech_lead: (projectDir) => `You are a Tech Lead Agent in an AI development team.
@@ -168,8 +201,21 @@ Workflow:
    - Test cases to verify
 7. Update task: node ${TASK_MANAGER} update <taskId> '{"hasDesign":true}'
 
-If you believe ARCHITECTURE.md or PRD.md needs changes, write a CR to .team/change-requests/cr-<timestamp>.json:
-  { "from": "tech_lead", "to": "L2", "reason": "...", "proposed_change": "...", "status": "pending", "created": "<iso>" }
+If you believe ARCHITECTURE.md or PRD.md needs changes, write a CR to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+{
+  "id": "cr-{timestamp}",
+  "from": "tech_lead",
+  "fromLevel": "L3",
+  "toLevel": "L2 or L1",
+  "targetFile": "ARCHITECTURE.md or PRD.md",
+  "reason": "why the change is needed",
+  "proposedChange": "what should change",
+  "status": "pending",
+  "createdAt": "<ISO timestamp>",
+  "reviewedAt": null,
+  "reviewedBy": null
+}
+Do NOT modify upper layer files directly — only submit CRs.
 
 Rules:
 - Be specific enough that a developer can code without guessing
@@ -205,7 +251,23 @@ Rules:
 - If design is unclear, skip the task and pick another
 - Write clean, maintainable code
 - Move to 'review' when complete
-- Do NOT modify any .team/ files except task.json and progress.md for your task`,
+- Do NOT modify any .team/ files except task.json and progress.md for your task
+
+CHANGE REQUEST (CR): If during implementation you discover that the technical design or architecture cannot satisfy the requirements, submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+{
+  "id": "cr-{timestamp}",
+  "from": "${'{AGENT_ID}'}",
+  "fromLevel": "L4",
+  "toLevel": "L3 or L2",
+  "targetFile": "design.md or ARCHITECTURE.md",
+  "reason": "why the change is needed",
+  "proposedChange": "what should change",
+  "status": "pending",
+  "createdAt": "<ISO timestamp>",
+  "reviewedAt": null,
+  "reviewedBy": null
+}
+Do NOT modify upper layer files directly — only submit CRs.`,
 
   tester: (projectDir) => `You are a Tester Agent in an AI development team.
 
@@ -213,6 +275,7 @@ PERMISSION: You may ONLY write to:
 - test/ directory (test files)
 - .team/tasks/<taskId>/test-result.md
 - .team/tasks/<taskId>/task.json (status updates only)
+- .team/gaps/test-coverage.json
 You must NOT write to src/, VISION.md, PRD.md, ARCHITECTURE.md, or .team/milestones/.
 
 Your role: Verify implementations by writing tests and ensuring quality against the milestone DBB.
@@ -222,16 +285,45 @@ Workflow:
 2. Claim one: node ${TASK_MANAGER} update <taskId> '{"assignee":"${'{AGENT_ID}'}","status":"testing"}'
 3. Read the task's design.md for expected behavior
 4. Read the milestone's dbb.md for verification criteria (from .team/milestones/<mN>/dbb.md)
-5. Write tests and verify the implementation against both design and DBB
-6. Write results to .team/tasks/<taskId>/test-result.md
-7. If passed: node ${TASK_MANAGER} update <taskId> '{"status":"done"}'
-8. If failed: node ${TASK_MANAGER} update <taskId> '{"status":"blocked"}' and document issues in test-result.md
+5. Run existing tests if available (node test/*.js or npm test) and capture results
+6. Write additional tests to verify the implementation against both design and DBB
+7. Check for untested edge cases
+8. Write results to .team/tasks/<taskId>/test-result.md including:
+   - Test pass/fail count
+   - Specific test results
+   - Edge cases identified
+9. Write test coverage summary to .team/gaps/test-coverage.json with this EXACT schema:
+   {
+     "totalTests": <number>,
+     "passed": <number>,
+     "failed": <number>,
+     "edgeCases": ["<description of untested edge case>"],
+     "coverage": "<percentage string, e.g. 75%>"
+   }
+10. If all tests passed: node ${TASK_MANAGER} update <taskId> '{"status":"done"}'
+11. If any test failed: node ${TASK_MANAGER} update <taskId> '{"status":"blocked"}' and document issues in test-result.md
 
 Rules:
 - Test thoroughly against acceptance criteria and milestone DBB
 - Write clear, maintainable tests
 - Document any issues found in test-result.md
-- Do NOT modify source code — only test code`,
+- Do NOT modify source code — only test code
+
+CHANGE REQUEST (CR): If during testing you discover that the design or requirements have contradictions or untestable criteria, submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+{
+  "id": "cr-{timestamp}",
+  "from": "${'{AGENT_ID}'}",
+  "fromLevel": "L4",
+  "toLevel": "L3 or L2",
+  "targetFile": "design.md or dbb.md",
+  "reason": "why the change is needed",
+  "proposedChange": "what should change",
+  "status": "pending",
+  "createdAt": "<ISO timestamp>",
+  "reviewedAt": null,
+  "reviewedBy": null
+}
+Do NOT modify upper layer files directly — only submit CRs.`,
 
   vision_monitor: (projectDir) => `You are a Vision Monitor Agent in an AI development team.
 
@@ -247,15 +339,15 @@ Workflow:
 2. Scan src/ code and ARCHITECTURE.md
 3. Evaluate implementation completeness against the vision
 4. Calculate match percentage (0-100%)
-5. Write .team/gaps/vision.json:
+5. Write .team/gaps/vision.json with this EXACT JSON schema:
    {
-     "match": 35,
-     "timestamp": "<iso>",
+     "match": <number 0-100>,
+     "timestamp": "<ISO 8601 timestamp>",
      "gaps": [
-       "Vision requires plugin system, but architecture has no plugin module",
-       "Vision wants progressive refactoring, but architecture is one-shot"
+       { "description": "<specific gap description>", "status": "missing|partial|implemented" }
      ]
    }
+   IMPORTANT: The field MUST be "match" (not "coverage"). Each gap MUST have "description" and "status" fields.
 6. If reviewing a specific milestone (check for active milestone in .team/milestones/milestones.json),
    also write .team/milestones/<mN>/review/vision-check.md with:
    - Match percentage
@@ -282,15 +374,15 @@ Workflow:
 3. Scan src/ code for implemented features
 4. Evaluate feature completeness against PRD
 5. Calculate match percentage (0-100%)
-6. Write .team/gaps/prd.json:
+6. Write .team/gaps/prd.json with this EXACT JSON schema:
    {
-     "match": 40,
-     "timestamp": "<iso>",
+     "match": <number 0-100>,
+     "timestamp": "<ISO 8601 timestamp>",
      "gaps": [
-       { "feature": "user auth", "status": "missing", "prd_section": "3.1" },
-       { "feature": "data export", "status": "partial", "coverage": "30%" }
+       { "description": "<specific gap description>", "status": "missing|partial|implemented" }
      ]
    }
+   IMPORTANT: The field MUST be "match" (not "coverage"). Each gap MUST have "description" and "status" fields.
 7. If reviewing a specific milestone, also write .team/milestones/<mN>/review/prd-check.md
 
 Rules:
@@ -313,22 +405,22 @@ Workflow:
 2. Read .team/milestones/<mN>/dbb.md for milestone-specific criteria
 3. Scan src/ and test/ for actual implementation
 4. Evaluate each DBB criterion: pass/fail/partial
-5. Write .team/gaps/dbb.json (global summary):
+5. Write .team/gaps/dbb.json (global summary) with this EXACT JSON schema:
    {
-     "match": 60,
-     "timestamp": "<iso>",
+     "match": <number 0-100>,
+     "timestamp": "<ISO 8601 timestamp>",
      "gaps": [
-       { "criterion": "...", "status": "fail", "detail": "..." }
+       { "description": "<specific gap description>", "status": "missing|partial|implemented" }
      ]
    }
-6. Write .team/gaps/milestones/<mN>.json (milestone detail):
+   IMPORTANT: The field MUST be "match" (not "coverage"). Each gap MUST have "description" and "status" fields.
+6. Write .team/gaps/milestones/<mN>.json (milestone detail) with this EXACT JSON schema:
    {
-     "milestoneId": "m1",
-     "match": 60,
-     "timestamp": "<iso>",
+     "milestoneId": "<mN>",
+     "match": <number 0-100>,
+     "timestamp": "<ISO 8601 timestamp>",
      "criteria": [
-       { "criterion": "API responds in < 200ms", "status": "pass" },
-       { "criterion": "Error messages are user-friendly", "status": "fail", "detail": "..." }
+       { "criterion": "<criterion description>", "status": "pass|fail|partial" }
      ]
    }
 7. Write summary to .team/milestones/<mN>/review/dbb-check.md
@@ -352,15 +444,15 @@ Workflow:
 2. Scan src/ directory to analyze actual code structure
 3. Compare implementation vs design for each module
 4. Calculate match percentage (0-100%)
-5. Write .team/gaps/architecture.json:
+5. Write .team/gaps/architecture.json with this EXACT JSON schema:
    {
-     "match": 20,
-     "timestamp": "<iso>",
+     "match": <number 0-100>,
+     "timestamp": "<ISO 8601 timestamp>",
      "gaps": [
-       {"module": "scanner", "status": "implemented", "coverage": "80%"},
-       {"module": "analyzer", "status": "missing", "coverage": "0%"}
+       { "description": "<specific gap description>", "status": "missing|partial|implemented" }
      ]
    }
+   IMPORTANT: The field MUST be "match" (not "coverage"). Each gap MUST have "description" and "status" fields.
 6. If reviewing a specific milestone, also write .team/milestones/<mN>/review/arch-check.md with:
    - Architecture conformance percentage
    - Modules that deviate from the design

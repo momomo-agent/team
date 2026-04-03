@@ -286,6 +286,26 @@ const server = http.createServer((req, res) => {
   else if (pathname === '/agents') {
     sendJSON(getAgents());
   }
+  else if (pathname === '/change-requests') {
+    // Task 1: GET /change-requests endpoint
+    const crDir = path.join(projectDir, '.team/change-requests');
+    const crs = [];
+    if (fs.existsSync(crDir)) {
+      try {
+        const files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); });
+        for (const f of files) {
+          const cr = readJSON(path.join(crDir, f));
+          if (cr) crs.push(cr);
+        }
+      } catch {}
+    }
+    sendJSON(crs);
+  }
+  else if (pathname === '/history') {
+    // Task 7: GET /history endpoint
+    const history = readJSON(path.join(projectDir, '.team/daemon-history.json')) || [];
+    sendJSON(history);
+  }
   else if (pathname === '/daemon/status') {
     sendJSON({ running: isDaemonRunning() });
   }

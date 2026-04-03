@@ -5,6 +5,8 @@
   <title id="page-title">DevTeam</title>
   <link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23888'/></svg>">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <script>mermaid.initialize({ startOnLoad: false, theme: 'dark' });</script>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -104,6 +106,10 @@
     .module-status.missing { background: rgba(239,68,68,0.15); color: var(--error); }
     .module-coverage { font-size: 10px; color: var(--dim); min-width: 32px; text-align: right; }
 
+    /* Mermaid diagram */
+    .mermaid-wrap { background: var(--card); border-radius: 6px; padding: 12px; border: 1px solid var(--border); margin-top: 12px; overflow-x: auto; }
+    .mermaid-wrap .mermaid { display: flex; justify-content: center; }
+
     /* Milestone cards */
     .ms-section { padding: 0 16px 12px; overflow-y: auto; }
     .ms-list { display: flex; flex-direction: column; gap: 6px; }
@@ -146,6 +152,25 @@
     .priority.p2 { background: #444; color: #ccc; }
     .task-ms { padding: 1px 5px; border-radius: 2px; font-size: 9px; background: rgba(96,165,250,0.15); color: var(--blue); }
     .task-assignee { color: var(--dim); }
+
+    /* Activity Log */
+    .activity-log { border-top: 1px solid var(--border); }
+    .activity-log-header { display: flex; align-items: center; gap: 8px; padding: 8px 16px; cursor: pointer; user-select: none; }
+    .activity-log-header:hover { background: rgba(255,255,255,0.02); }
+    .activity-log-arrow { font-size: 10px; color: var(--dim); }
+    .activity-log-title { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+    .activity-log-content { max-height: 200px; overflow-y: auto; padding: 0 16px 8px; }
+    .activity-list { display: flex; flex-direction: column; gap: 2px; }
+    .activity-entry { display: flex; gap: 8px; font-size: 10px; padding: 3px 6px; border-radius: 3px; align-items: baseline; }
+    .activity-entry:hover { background: rgba(255,255,255,0.02); }
+    .activity-time { color: var(--dim); min-width: 55px; font-variant-numeric: tabular-nums; }
+    .activity-event { padding: 1px 5px; border-radius: 2px; font-weight: 600; font-size: 9px; text-transform: uppercase; min-width: 70px; text-align: center; }
+    .activity-event.green { background: rgba(74,222,128,0.15); color: var(--accent); }
+    .activity-event.red { background: rgba(239,68,68,0.15); color: var(--error); }
+    .activity-event.blue { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .activity-event.yellow { background: rgba(245,158,11,0.15); color: var(--warn); }
+    .activity-agent { color: var(--text); min-width: 80px; font-weight: 500; }
+    .activity-details { color: #888; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -183,6 +208,13 @@
       <hr class="section-divider">
       <div class="section-header" id="kanban-header">Kanban</div>
       <div class="kanban-section" id="kanban-content"></div>
+      <div class="activity-log">
+        <div class="activity-log-header" id="activity-log-toggle">
+          <span class="activity-log-arrow" id="activity-log-arrow">&#9654;</span>
+          <span class="activity-log-title">Activity Log</span>
+        </div>
+        <div class="activity-log-content" id="activity-log-content" style="display:none;"></div>
+      </div>
     </div>
   </div>
 
