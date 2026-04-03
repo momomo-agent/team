@@ -288,7 +288,16 @@ const server = http.createServer((req, res) => {
   else if (pathname.startsWith('/doc/')) {
     const docId = pathname.replace('/doc/', '');
     const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
-    const doc = config.docs && config.docs.items ? config.docs.items.find(function(d) { return d.id === docId; }) : null;
+    
+    // 支持新配置：dashboard.left
+    let doc = null;
+    if (config.dashboard && config.dashboard.left) {
+      doc = config.dashboard.left.find(function(d) { return d.id === docId; });
+    }
+    // 兼容旧配置：docs.items
+    else if (config.docs && config.docs.items) {
+      doc = config.docs.items.find(function(d) { return d.id === docId; });
+    }
     
     if (!doc) {
       res.writeHead(404);
@@ -296,7 +305,20 @@ const server = http.createServer((req, res) => {
       return;
     }
     
-    const docPath = path.join(projectDir, config.docs.root || '.team/docs', doc.file);
+    // 新配置用 path，旧配置用 file
+    const docFile = doc.path || doc.file;
+    let docPath;
+    
+    // 新配置：path 是相对项目根目录
+    if (doc.path) {
+      docPath = path.join(projectDir, doc.path);
+    }
+    // 旧配置：file 是相对 docs.root
+    else {
+      const docRoot = config.docs && config.docs.root ? config.docs.root : '.team/docs';
+      docPath = path.join(projectDir, docRoot, docFile);
+    }
+    
     const data = parseMarkdown(docPath);
     
     if (doc.monitor && doc.monitor.output) {
