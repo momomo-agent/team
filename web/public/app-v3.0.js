@@ -172,53 +172,37 @@ function syncMobilePane() {
 // --- Data Loading ---
 async function refresh() {
   try {
-    // v3.1: 收集所有需要加载的数据
-    var dataFetches = [];
-    var leftTabs = [];
-    var rightTabs = [];
+    // Build dynamic doc fetches
+    var docFetches = [];
+    var docItems = [];
     
-    if (teamConfig && teamConfig.dashboard) {
-      // 左侧 tabs
-      if (teamConfig.dashboard.left) {
-        if (teamConfig.dashboard.left[0] && teamConfig.dashboard.left[0].components) {
-          // v3.1: 多组件
-          leftTabs = teamConfig.dashboard.left;
-        } else {
-          // v3.0: 单组件（兼容）
-          leftTabs = teamConfig.dashboard.left.filter(function(t) { return t.showInUI !== false; });
-        }
-      }
-      
-      // 右侧 tabs
-      if (teamConfig.dashboard.right) {
-        if (teamConfig.dashboard.right[0] && teamConfig.dashboard.right[0].components) {
-          // v3.1: 多组件
-          rightTabs = teamConfig.dashboard.right;
-        } else {
-          // v3.0: 单组件（兼容）
-          rightTabs = teamConfig.dashboard.right;
-        }
-      }
+    // 新配置：dashboard.left
+    if (teamConfig && teamConfig.dashboard && teamConfig.dashboard.left) {
+      docItems = teamConfig.dashboard.left.filter(function(t) { return t.showInUI !== false; });
     }
-    // v2.0: 兼容更旧配置
+    // 旧配置：docs.items（兼容）
     else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
-      leftTabs = teamConfig.docs.items.filter(function(d) { return d.showInUI; });
+      docItems = teamConfig.docs.items.filter(function(d) { return d.showInUI; });
     }
     
-    // 加载基础数据
+    docItems.forEach(function(doc) {
+      docFetches.push(fetch('/doc/' + doc.id).then(function(r) { return r.json(); }).catch(function() { return {}; }));
+    });
+    
     var results = await Promise.all([
       fetch('/status').then(function(r) { return r.json(); }),
       fetch('/gaps').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/milestones').then(function(r) { return r.json(); }).catch(function() { return { milestones: [] }; }),
       fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/pipeline').then(function(r) { return r.json(); }).catch(function() { return { stages: [] }; })
-    ]);
+    ].concat(docFetches));
 
     var status = results[0];
     var gaps = results[1];
     var msData = results[2];
     var agents = results[3];
     var pipeline = results[4];
+    var docs = results.slice(5); // All doc results
 
     var milestones = msData.milestones || [];
     cachedMilestones = milestones;
@@ -237,81 +221,23 @@ async function refresh() {
 
     renderTopBar(status, agents);
     updateTabMatches(status, gaps);
-    
-    // 渲染左侧 tabs
-    for (var i = 0; i < leftTabs.length; i++) {
-      var tab = leftTabs[i];
-      var tabId = tab.id || ('tab-' + i);
-      var pane = document.getElementById('pane-' + tabId);
-      if (!pane) continue;
-      
-      // v3.1: 多组件
-      if (tab.components) {
-        pane.innerHTML = '';
-        for (var j = 0; j < tab.components.length; j++) {
-          var comp = tab.components[j];
-          await renderComponent(pane, comp, gaps);
+    // Render docs dynamically
+    if (docItems.length > 0) {
+      docItems.forEach(function(docConfig, i) {
+        if (docs[i]) {
+          renderDoc(docConfig.id, docs[i], gaps);
         }
-      }
-      // v3.0/v2.0: 单组件（兼容）
-      else if (tab.path || tab.file) {
-        var docPath = tab.path || tab.file;
-        var docData = await fetch('/doc/' + tab.id).then(function(r) { return r.json(); }).catch(function() { return {}; });
-        renderDoc(tabId, docData, gaps);
-      }
+      });
     }
-    
-    // 渲染右侧 tabs
-    for (var i = 0; i < rightTabs.length; i++) {
-      var tab = rightTabs[i];
-      var tabId = tab.id || ('rtab-' + i);
-      var pane = document.getElementById('rpane-' + tabId);
-      if (!pane) continue;
-      
-      // v3.1: 多组件
-      if (tab.components) {
-        pane.innerHTML = '';
-        for (var j = 0; j < tab.components.length; j++) {
-          var comp = tab.components[j];
-          if (comp.component === 'PipelineView') {
-            renderPipelineInPane(pane, pipeline);
-          } else if (comp.component === 'KanbanView') {
-            renderKanbanInPane(pane, kanban, milestones);
-          } else if (comp.component === 'MilestonesView') {
-            renderMilestonesInPane(pane, milestones);
-          }
-        }
-      }
-      // v3.0: 单组件（兼容）
-      else {
-        if (tab.component === 'PipelineView' || tabId === 'pipeline') {
-          renderPipeline(pipeline);
-        } else if (tab.component === 'KanbanView' || tabId === 'kanban') {
-          renderKanban(kanban, milestones);
-        } else if (tab.component === 'MilestonesView' || tabId === 'milestones') {
-          renderMilestones(milestones);
-        }
-      }
-    }
+
+    renderPipeline(pipeline);
+    renderKanban(kanban, milestones);
+    renderMilestones(milestones);
 
     // Sync mobile pane after all renders
     syncMobilePane();
   } catch (err) {
     console.error('Refresh error:', err);
-  }
-}
-
-// 渲染单个组件到指定 pane
-async function renderComponent(pane, comp, gaps) {
-  if (comp.component === 'MarkdownView') {
-    var docData = await fetch('/file/' + comp.path).then(function(r) { return r.json(); }).catch(function() { 
-      return { content: '', match: 0 };
-    });
-    
-    var container = document.createElement('div');
-    container.className = 'markdown-view';
-    container.innerHTML = marked.parse(docData.content || '');
-    pane.appendChild(container);
   }
 }
 
@@ -447,34 +373,6 @@ function toggleStage(stageId) {
   expandedStages[stageId] = expandedStages[stageId] === false ? true : false;
   // Re-render pipeline from last data (avoid re-fetch)
   fetch('/pipeline').then(function(r) { return r.json(); }).then(renderPipeline);
-}
-
-// v3.1: 渲染到指定 pane 的版本
-function renderPipelineInPane(pane, pipeline) {
-  var stages = pipeline.stages || [];
-  if (stages.length === 0) {
-    pane.innerHTML = '<div style="color:#888;font-size:11px;padding:16px;">No pipeline data.</div>';
-    return;
-  }
-  
-  var container = document.createElement('div');
-  container.id = 'rpane-pipeline';
-  pane.appendChild(container);
-  renderPipeline(pipeline);
-}
-
-function renderKanbanInPane(pane, kanban, milestones) {
-  var container = document.createElement('div');
-  container.id = 'rpane-kanban';
-  pane.appendChild(container);
-  renderKanban(kanban, milestones);
-}
-
-function renderMilestonesInPane(pane, milestones) {
-  var container = document.createElement('div');
-  container.id = 'rpane-milestones';
-  pane.appendChild(container);
-  renderMilestones(milestones);
 }
 
 // ====== KANBAN VIEW ======

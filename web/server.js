@@ -285,6 +285,20 @@ const server = http.createServer((req, res) => {
       completion: total > 0 ? Math.round(((filteredKanban.done || []).length / total) * 100) : 0
     });
   }
+  else if (pathname.startsWith('/file/')) {
+    // v3.1: 按 path 直接获取文档
+    const filePath = pathname.replace('/file/', '');
+    const fullPath = path.join(projectDir, filePath);
+    
+    if (!fs.existsSync(fullPath)) {
+      res.writeHead(404);
+      res.end(JSON.stringify({ error: 'File not found' }));
+      return;
+    }
+    
+    const data = parseMarkdown(fullPath);
+    sendJSON(data);
+  }
   else if (pathname.startsWith('/doc/')) {
     const docId = pathname.replace('/doc/', '');
     const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
