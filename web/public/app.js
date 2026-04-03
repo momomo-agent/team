@@ -330,7 +330,22 @@ async function renderComponent(pane, comp, gaps) {
     
     var container = document.createElement('div');
     container.className = 'markdown-view';
-    container.innerHTML = marked.parse(docData.content || '');
+    
+    // 添加 monitor 评估结果（如果有 gaps 数据）
+    var html = '';
+    if (gaps && comp.gapKey) {
+      var gapData = gaps[comp.gapKey];
+      if (gapData) {
+        var match = gapData.match || gapData.coverage || 0;
+        var gapsList = gapData.gaps || [];
+        html += renderMatchDisplay(comp.label + ' Match', match);
+        html += renderGapsList(gapsList);
+      }
+    }
+    
+    // 添加原文内容
+    html += marked.parse(docData.content || '');
+    container.innerHTML = html;
     pane.appendChild(container);
   }
 }
