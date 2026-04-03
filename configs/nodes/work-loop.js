@@ -10,12 +10,15 @@ module.exports = {
   async do(ctx) {
     const agents = [];
     
-    // Tech Lead
+    // 调试日志
+    ctx.log(`[DEBUG] todoCount=${ctx.todoCount}, designedTasks=${ctx.designedTasks}, reviewCount=${ctx.reviewCount}, maxDevs=${ctx.maxDevs}`);
+    
+    // Tech Lead（只在有 todo 且没设计方案时才启动）
     if (ctx.todoCount > 0) {
       agents.push('tech_lead');
     }
     
-    // Developer-N (scalable)
+    // Developer-N (scalable，需要有设计方案才启动)
     if (ctx.designedTasks > 0) {
       const count = Math.min(ctx.designedTasks, ctx.maxDevs);
       for (let i = 1; i <= count; i++) {
@@ -23,7 +26,7 @@ module.exports = {
       }
     }
     
-    // Tester-N (scalable)
+    // Tester-N (scalable，需要有 review 状态的任务才启动)
     if (ctx.reviewCount > 0) {
       const count = Math.min(Math.ceil(ctx.reviewCount / 2), 2);
       for (let i = 1; i <= count; i++) {
@@ -31,24 +34,36 @@ module.exports = {
       }
     }
     
-    // 并行执行
-    if (agents.length > 0) {
-      ctx.log(`Running ${agents.length} agents in parallel`);
-      await ctx.runAgents(agents, true);
+    // 没有任何 agent 需要启动 → 不做无用功
+    if (agents.length === 0) {
+      ctx.log('No agents to run, skipping iteration');
+      return;
     }
+    
+    // 并行执行
+    ctx.log(`Running ${agents.length} agents in parallel`);
+    await ctx.runAgents(agents, true);
     
     // PM 再分配
     await ctx.runAgent('pm');
   },
   
   exit(ctx) {
-    if (ctx.isMilestoneComplete()) {
+    const kanban = ctx.kanban();
+    const inProgress = (kanban.inProgress || []).length;
+    const testing = (kanban.testing || []).length;
+    
+    // 如果还有正在进行的工作，继续循环
+    if (ctx.todoCount > 0 || ctx.reviewCount > 0 || inProgress > 0 || testing > 0) {
+      return null; // 继续循环
+    }
+    
+    // 所有任务都完成了（done），进入质量门禁
+    if (ctx.doneCount > 0) {
       return 'quality_gate';
     }
-    if (ctx.todoCount === 0 && ctx.reviewCount === 0) {
-      return 'standby';
-    }
-    // 继续循环：返回 null 或 undefined
-    return null;
+    
+    // 没有任何任务，进入待机
+    return 'standby';
   }
 };

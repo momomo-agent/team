@@ -416,8 +416,8 @@ class TeamDaemon {
     var config = this.loadWorkflowConfig();
     this.log('agent_start', 'workflow', 'Config version: ' + config.version);
     
-    if (config.version === '3.0') {
-      // v3.0: 使用 WorkflowEngine
+    if (parseFloat(config.version) >= 3.0) {
+      // v3.0+: 使用 WorkflowEngine
       this.log('agent_start', 'workflow', 'Using v3.0 WorkflowEngine');
       const engine = new WorkflowEngine(config, this);
       await engine.execute();
@@ -713,9 +713,7 @@ class TeamDaemon {
         await this.onMilestoneComplete();
       } else if (active) {
         // Active milestone - check version
-        if (config.version === '3.0') {
-          // v3.0: use WorkflowEngine
-          this.log('agent_start', 'workflow', 'Using v3.0 WorkflowEngine for work_loop');
+        if (parseFloat(config.version) >= 3.0) {
           const WorkflowEngine = require('./workflow-engine-v3');
           const engine = new WorkflowEngine(config, this);
           await engine.executeNode('work_loop');
@@ -729,7 +727,7 @@ class TeamDaemon {
         await this.runAgent('pm');
         var newActive = this.getActiveMilestone();
         if (newActive) {
-          if (config.version === '3.0') {
+          if (parseFloat(config.version) >= 3.0) {
             const WorkflowEngine = require('./workflow-engine-v3');
             const engine = new WorkflowEngine(config, this);
             await engine.executeNode('work_loop');

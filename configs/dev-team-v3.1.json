@@ -9,7 +9,9 @@
         "components": [
           {
             "component": "MarkdownView",
-            "path": "VISION.md"
+            "path": "VISION.md",
+            "gapKey": "vision",
+            "label": "Vision"
           }
         ],
         "badge": {
@@ -22,7 +24,9 @@
         "components": [
           {
             "component": "MarkdownView",
-            "path": "PRD.md"
+            "path": "PRD.md",
+            "gapKey": "prd",
+            "label": "PRD"
           }
         ],
         "badge": {
@@ -35,7 +39,9 @@
         "components": [
           {
             "component": "MarkdownView",
-            "path": "EXPECTED_DBB.md"
+            "path": "EXPECTED_DBB.md",
+            "gapKey": "dbb",
+            "label": "DBB"
           }
         ],
         "badge": {
@@ -48,7 +54,9 @@
         "components": [
           {
             "component": "MarkdownView",
-            "path": "ARCHITECTURE.md"
+            "path": "ARCHITECTURE.md",
+            "gapKey": "architecture",
+            "label": "Architecture"
           }
         ],
         "badge": {

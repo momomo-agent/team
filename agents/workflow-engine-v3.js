@@ -163,7 +163,11 @@ class WorkflowEngine {
       // 工具
       Math,
       Date,
-      log: (...args) => this.daemon.log('workflow', this.currentNode, ...args)
+      log: (...args) => this.daemon.log('workflow', this.currentNode, ...args),
+      
+      // v2.0 对齐：检查 CR 和 stuck tasks
+      checkPendingCRs: () => this.daemon.checkPendingCRs && this.daemon.checkPendingCRs(),
+      checkStuckTasks: () => this.daemon.checkStuckTasks && this.daemon.checkStuckTasks()
     };
 
     return ctx;

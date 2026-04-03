@@ -781,58 +781,8 @@ function renderDoc(docId, docData, gaps) {
   }
 }
 
-function renderVision(vision, gaps) {
-  var match = 0, gapsList = [];
-  if (gaps && gaps.vision) { match = gaps.vision.match || gaps.vision.coverage || 0; gapsList = gaps.vision.gaps || []; }
-  var html = renderMatchDisplay('Vision Match', match);
-  html += renderGapsList(gapsList);
-  if (vision.content) html += '<div class="md-content">' + marked.parse(vision.content) + '</div>';
-  document.getElementById('pane-vision').innerHTML = html;
-}
-
-function renderPRD(prd, gaps) {
-  var match = 0, gapsList = [];
-  if (gaps && gaps.prd) { match = gaps.prd.match || gaps.prd.coverage || 0; gapsList = gaps.prd.gaps || []; }
-  var html = renderMatchDisplay('PRD Match', match);
-  html += renderGapsList(gapsList);
-  if (prd && prd.content) html += '<div class="md-content">' + marked.parse(prd.content) + '</div>';
-  document.getElementById('pane-prd').innerHTML = html;
-}
-
-function renderDBB(dbb, gaps) {
-  var match = 0, gapsList = [];
-  if (gaps && gaps.dbb) { match = gaps.dbb.match || gaps.dbb.coverage || 0; gapsList = gaps.dbb.gaps || []; }
-  var html = renderMatchDisplay('DBB Match', match);
-  html += renderGapsList(gapsList);
-  if (dbb && dbb.content) html += '<div class="md-content">' + marked.parse(dbb.content) + '</div>';
-  document.getElementById('pane-dbb').innerHTML = html;
-}
-
-function renderArchitecture(arch, gaps) {
-  var match = 0, gapsList = [];
-  if (gaps && gaps.architecture) { match = gaps.architecture.match || gaps.architecture.coverage || 0; gapsList = gaps.architecture.gaps || []; }
-  var el = document.getElementById('pane-arch');
-  var html = renderMatchDisplay('Architecture Match', match);
-  html += renderGapsList(gapsList);
-
-  var modules = arch.modules || [];
-  if (modules.length > 0) {
-    html += '<div class="module-list">';
-    for (var j = 0; j < modules.length; j++) {
-      var mod = modules[j];
-      var statusCls = mod.status === 'implemented' ? 'implemented' : mod.status === 'missing' ? 'missing' : 'partial';
-      html += '<div class="module-item">' +
-        '<span class="module-name">' + escapeHtml(mod.name) + '</span>' +
-        '<span class="module-status ' + statusCls + '">' + escapeHtml(mod.status || 'partial') + '</span>' +
-        '<span class="module-coverage">' + (mod.coverage || 0) + '%</span></div>';
-    }
-    html += '</div>';
-  }
-
-  if (arch.diagramSvg) html += '<div class="mermaid-wrap">' + arch.diagramSvg + '</div>';
-  if (arch.content) html += '<div class="md-content">' + marked.parse(arch.content) + '</div>';
-  el.innerHTML = html;
-}
+// (Dead code removed: renderVision, renderPRD, renderDBB, renderArchitecture
+//  — all rendering now handled by renderComponent with gapKey config)
 
 // --- Shared Render Helpers ---
 function renderMatchDisplay(label, value) {
