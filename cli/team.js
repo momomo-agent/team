@@ -107,16 +107,16 @@ function init(dirName) {
     fs.mkdirSync(path.join(projectDir, dir), { recursive: true });
   }
 
-  // Create config
-  const config = {
+  // Load default config and merge with project-specific fields
+  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs/default.json');
+  let defaultConfig = {};
+  try { defaultConfig = JSON.parse(fs.readFileSync(defaultConfigPath, 'utf8')); } catch {}
+
+  const config = Object.assign({}, defaultConfig, {
     name: path.basename(projectDir),
     created: new Date().toISOString(),
-    devteamVersion: '2.0',
-    notify: {
-      discord: { channel: '' },
-      macos: true
-    }
-  };
+    devteamVersion: '2.0'
+  });
   fs.writeFileSync(path.join(projectDir, '.team/config.json'), JSON.stringify(config, null, 2));
 
   // Create kanban

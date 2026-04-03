@@ -2,10 +2,10 @@
 /**
  * DevTeam Daemon - Event-driven orchestrator
  *
- * Event model (from DESIGN.md):
- *   Project start: architect(serial) → monitors(parallel) → PM → work loop
- *   Work loop: tech_lead + developer-N(only tasks with design) + tester-N (all parallel) → PM re-assign → loop
- *   Milestone complete: 4 monitors parallel (vision + prd + dbb + arch) → gaps → PM next milestone
+ * Event model (from config workflow):
+ *   Project start: startup sequence from config
+ *   Work loop: parallel agents from config → then agents
+ *   Milestone complete: milestoneCheck from config
  *   Safety interval: 10 min
  *   Agent timeout: 60 min
  *   nohup-compatible (no stdin needed)
@@ -18,10 +18,13 @@ const path = require('path');
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
 const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
 const RUNNER = path.join(__dirname, 'runner.js');
+const DEVTEAM_ROOT = path.join(__dirname, '..');
+const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs/default.json');
 const MAX_HISTORY_ENTRIES = 500;
 
 class TeamDaemon {
-  constructor(projectDir, opts = {}) {
+  constructor(projectDir, opts) {
+    opts = opts || {};
     this.projectDir = projectDir;
     this.running = false;
     this.busy = false;
@@ -29,10 +32,42 @@ class TeamDaemon {
     this.workLoopCount = 0;
   }
 
+  // --- Config Loading ---
+
+  loadWorkflowConfig() {
+    var projectConfigPath = path.join(this.projectDir, '.team/config.json');
+    var projectConfig = {};
+    try { projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, 'utf8')); } catch {}
+
+    var defaultConfig = JSON.parse(fs.readFileSync(DEFAULT_CONFIG_PATH, 'utf8'));
+
+    return {
+      workflow: projectConfig.workflow || defaultConfig.workflow,
+      agents: projectConfig.agents || defaultConfig.agents,
+      git: projectConfig.git || defaultConfig.git || {},
+      notify: projectConfig.notify || defaultConfig.notify || {}
+    };
+  }
+
+  // --- Condition Evaluation ---
+
+  evaluateCondition(condition) {
+    if (!condition) return true;
+
+    if (condition === 'no-architecture') {
+      var archPath = path.join(this.projectDir, 'ARCHITECTURE.md');
+      if (!fs.existsSync(archPath)) return true;
+      return fs.readFileSync(archPath, 'utf8').trim().length < 100;
+    }
+
+    // Unknown condition — run by default
+    return true;
+  }
+
   // --- Structured Logging (Task 7) ---
 
   log(event, agent, details) {
-    const entry = {
+    var entry = {
       time: new Date().toISOString(),
       event: event,
       agent: agent || null,
@@ -40,11 +75,11 @@ class TeamDaemon {
     };
 
     // Console output
-    console.log(`[${ts()}] [${event}] ${agent || ''} ${details || ''}`);
+    console.log('[' + ts() + '] [' + event + '] ' + (agent || '') + ' ' + (details || ''));
 
     // Append to daemon-history.json
-    const historyPath = path.join(this.projectDir, '.team/daemon-history.json');
-    let history = [];
+    var historyPath = path.join(this.projectDir, '.team/daemon-history.json');
+    var history = [];
     try { history = JSON.parse(fs.readFileSync(historyPath, 'utf8')); } catch {}
     history.push(entry);
     // Keep last MAX_HISTORY_ENTRIES entries
@@ -57,9 +92,10 @@ class TeamDaemon {
   // --- Agent Execution ---
 
   runAgent(agentType) {
-    return new Promise((resolve) => {
-      const baseType = agentType.replace(/-\d+$/, '');
-      const taskDesc = {
+    var self = this;
+    return new Promise(function(resolve) {
+      var baseType = agentType.replace(/-\d+$/, '');
+      var taskDesc = {
         architect: '设计系统架构',
         vision_monitor: '评估愿景匹配度',
         prd_monitor: '评估PRD匹配度',
@@ -71,29 +107,30 @@ class TeamDaemon {
         tester: '验证功能'
       };
 
-      this.log('agent_start', agentType, taskDesc[baseType] || agentType);
-      this.updateAgentStatus(agentType, 'running', taskDesc[baseType] || agentType);
+      self.log('agent_start', agentType, taskDesc[baseType] || agentType);
+      self.updateAgentStatus(agentType, 'running', taskDesc[baseType] || agentType);
 
-      const proc = spawn('node', [RUNNER, agentType, this.projectDir], {
+      var proc = spawn('node', [RUNNER, agentType, self.projectDir], {
         stdio: ['ignore', 'inherit', 'inherit'] // no stdin (nohup-compatible)
       });
 
-      const timeout = setTimeout(() => {
+      var timeout = setTimeout(function() {
         proc.kill('SIGTERM');
       }, AGENT_TIMEOUT);
 
-      proc.on('close', (code) => {
+      proc.on('close', function(code) {
         clearTimeout(timeout);
         if (code === 0) {
-          this.updateAgentStatus(agentType, 'idle', null);
-          this.log('agent_complete', agentType, 'completed successfully');
+          self.updateAgentStatus(agentType, 'idle', null);
+          self.log('agent_complete', agentType, 'completed successfully');
 
-          // Auto git commit after developer or tester completes
-          if (baseType === 'developer' || baseType === 'tester') {
+          // Auto git commit after developer or tester completes (from config)
+          var config = self.loadWorkflowConfig();
+          if (config.git && config.git.commitPerTask && (baseType === 'developer' || baseType === 'tester')) {
             try {
-              const prefix = baseType === 'developer' ? 'feat' : 'test';
-              execSync(`git add -A && git diff --cached --quiet || git commit -m "${prefix}: ${agentType} completed"`, {
-                cwd: this.projectDir,
+              var prefix = baseType === 'developer' ? 'feat' : 'test';
+              execSync('git add -A && git diff --cached --quiet || git commit -m "' + prefix + ': ' + agentType + ' completed"', {
+                cwd: self.projectDir,
                 stdio: 'pipe'
               });
             } catch {}
@@ -102,39 +139,39 @@ class TeamDaemon {
           resolve(true);
         } else {
           // Task 4: Error Recovery — retry once on failure
-          const statusPath = path.join(this.projectDir, '.team/agent-status.json');
-          let all = {};
+          var statusPath = path.join(self.projectDir, '.team/agent-status.json');
+          var all = {};
           try { all = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
-          const retryCount = (all[agentType] && all[agentType].retryCount) || 0;
+          var retryCount = (all[agentType] && all[agentType].retryCount) || 0;
 
           if (retryCount < 1) {
-            this.log('error', agentType, `failed (code=${code}), retrying (attempt ${retryCount + 1})`);
-            this.updateAgentStatus(agentType, 'retrying', null, retryCount + 1);
+            self.log('error', agentType, 'failed (code=' + code + '), retrying (attempt ' + (retryCount + 1) + ')');
+            self.updateAgentStatus(agentType, 'retrying', null, retryCount + 1);
             // Retry once
-            this.runAgent(agentType).then(resolve);
+            self.runAgent(agentType).then(resolve);
           } else {
-            this.updateAgentStatus(agentType, 'error', null, retryCount);
-            this.log('error', agentType, `failed (code=${code}) after retry, marking as error`);
+            self.updateAgentStatus(agentType, 'error', null, retryCount);
+            self.log('error', agentType, 'failed (code=' + code + ') after retry, marking as error');
             resolve(false);
           }
         }
       });
 
-      proc.on('error', (err) => {
+      proc.on('error', function(err) {
         clearTimeout(timeout);
-        this.updateAgentStatus(agentType, 'error', err.message);
-        this.log('error', agentType, `spawn error: ${err.message}`);
+        self.updateAgentStatus(agentType, 'error', err.message);
+        self.log('error', agentType, 'spawn error: ' + err.message);
         resolve(false);
       });
     });
   }
 
   updateAgentStatus(agentType, status, task, retryCount) {
-    const statusPath = path.join(this.projectDir, '.team/agent-status.json');
-    let all = {};
+    var statusPath = path.join(this.projectDir, '.team/agent-status.json');
+    var all = {};
     try { all = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
     all[agentType] = {
-      status,
+      status: status,
       lastRun: new Date().toISOString(),
       currentTask: task || null,
       retryCount: retryCount != null ? retryCount : (all[agentType] && all[agentType].retryCount) || 0
@@ -145,25 +182,23 @@ class TeamDaemon {
   // --- Notifications ---
 
   async notify(title, message) {
-    const configPath = path.join(this.projectDir, '.team/config.json');
-    let config = {};
-    try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch {}
-    const notifyConfig = config.notify || {};
+    var config = this.loadWorkflowConfig();
+    var notifyConfig = config.notify || {};
 
     // macOS notification
     if (notifyConfig.macos) {
       try {
-        execSync(`osascript -e 'display notification "${message}" with title "DevTeam: ${title}"'`);
+        execSync('osascript -e \'display notification "' + message + '" with title "DevTeam: ' + title + '"\'');
       } catch {}
     }
 
     // Write to notifications file (for Momo heartbeat to pick up and send to Discord)
-    const notifPath = path.join(this.projectDir, '.team/notifications.json');
-    let notifs = [];
+    var notifPath = path.join(this.projectDir, '.team/notifications.json');
+    var notifs = [];
     try { notifs = JSON.parse(fs.readFileSync(notifPath, 'utf8')); } catch {}
     notifs.push({
-      title,
-      message,
+      title: title,
+      message: message,
       channel: notifyConfig.discord && notifyConfig.discord.channel ? notifyConfig.discord.channel : null,
       timestamp: new Date().toISOString(),
       sent: false
@@ -174,18 +209,19 @@ class TeamDaemon {
   // --- CR Checking (Task 1) ---
 
   checkPendingCRs() {
-    const crDir = path.join(this.projectDir, '.team/change-requests');
+    var crDir = path.join(this.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return;
 
-    let files;
+    var files;
     try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return; }
 
-    for (const f of files) {
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
       try {
-        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
+        var cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
         if (cr.status === 'pending') {
-          this.log('cr_created', cr.from || 'unknown', `CR ${cr.id || f}: ${cr.reason || 'no reason'}`);
-          this.notify('Change Request', `[${cr.from}] ${cr.reason || 'New CR pending'}`);
+          this.log('cr_created', cr.from || 'unknown', 'CR ' + (cr.id || f) + ': ' + (cr.reason || 'no reason'));
+          this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'));
         }
       } catch {}
     }
@@ -194,23 +230,24 @@ class TeamDaemon {
   // --- Task 4: Stuck task detection ---
 
   checkStuckTasks() {
-    const kanban = this.getKanban();
-    const inProgress = kanban.inProgress || [];
+    var kanban = this.getKanban();
+    var inProgress = kanban.inProgress || [];
     if (inProgress.length === 0) return;
 
-    const statusPath = path.join(this.projectDir, '.team/agent-status.json');
-    let agentStatus = {};
+    var statusPath = path.join(this.projectDir, '.team/agent-status.json');
+    var agentStatus = {};
     try { agentStatus = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch {}
 
     // Check if any agents are still running — if none are running but tasks are inProgress, they may be stuck
-    const anyRunning = Object.values(agentStatus).some(function(a) { return a.status === 'running'; });
+    var anyRunning = Object.values(agentStatus).some(function(a) { return a.status === 'running'; });
     if (anyRunning) return; // agents still working, not stuck yet
 
     // If we've done 2+ work loops with same inProgress tasks, move them back to todo
     if (this.workLoopCount >= 2 && inProgress.length > 0) {
-      const TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
-      const tm = new TaskManager(this.projectDir);
-      for (const taskId of inProgress) {
+      var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
+      var tm = new TaskManager(this.projectDir);
+      for (var i = 0; i < inProgress.length; i++) {
+        var taskId = inProgress[i];
         try {
           tm.updateTask(taskId, { status: 'todo', assignee: null });
           this.log('error', taskId, 'Task stuck in inProgress for 2+ loops, moved back to todo');
@@ -223,7 +260,7 @@ class TeamDaemon {
   // --- Data Reading ---
 
   getKanban() {
-    const p = path.join(this.projectDir, '.team/kanban.json');
+    var p = path.join(this.projectDir, '.team/kanban.json');
     try {
       return JSON.parse(fs.readFileSync(p, 'utf8'));
     } catch {
@@ -232,7 +269,7 @@ class TeamDaemon {
   }
 
   getMilestones() {
-    const p = path.join(this.projectDir, '.team/milestones/milestones.json');
+    var p = path.join(this.projectDir, '.team/milestones/milestones.json');
     try {
       return JSON.parse(fs.readFileSync(p, 'utf8'));
     } catch {
@@ -241,18 +278,19 @@ class TeamDaemon {
   }
 
   getActiveMilestone() {
-    const data = this.getMilestones();
+    var data = this.getMilestones();
     return (data.milestones || []).find(function(m) { return m.status === 'active'; }) || null;
   }
 
   getTasksWithDesign() {
-    const kanban = this.getKanban();
-    const todoIds = kanban.todo || [];
-    let count = 0;
-    for (const tid of todoIds) {
-      const taskPath = path.join(this.projectDir, '.team/tasks', tid, 'task.json');
+    var kanban = this.getKanban();
+    var todoIds = kanban.todo || [];
+    var count = 0;
+    for (var i = 0; i < todoIds.length; i++) {
+      var tid = todoIds[i];
+      var taskPath = path.join(this.projectDir, '.team/tasks', tid, 'task.json');
       try {
-        const task = JSON.parse(fs.readFileSync(taskPath, 'utf8'));
+        var task = JSON.parse(fs.readFileSync(taskPath, 'utf8'));
         if (task.hasDesign) count++;
       } catch {}
     }
@@ -260,49 +298,89 @@ class TeamDaemon {
   }
 
   getReviewCount() {
-    const kanban = this.getKanban();
+    var kanban = this.getKanban();
     return (kanban.review || []).length;
   }
 
   getTodoCount() {
-    const kanban = this.getKanban();
+    var kanban = this.getKanban();
     return (kanban.todo || []).length;
   }
 
   isMilestoneComplete() {
-    const ms = this.getActiveMilestone();
+    var ms = this.getActiveMilestone();
     if (!ms || !ms.tasks || ms.tasks.length === 0) return false;
-    const kanban = this.getKanban();
-    const doneSet = new Set(kanban.done || []);
+    var kanban = this.getKanban();
+    var doneSet = new Set(kanban.done || []);
     return ms.tasks.every(function(id) { return doneSet.has(id); });
   }
 
-  // --- Event Handlers ---
+  // --- Scalable Agent Spawning ---
+
+  getScalableAgentInstances(agentType) {
+    var baseType = agentType.replace(/-\d+$/, '');
+
+    if (baseType === 'developer') {
+      var designedTasks = this.getTasksWithDesign();
+      if (designedTasks <= 0) return [];
+      var devCount = Math.max(1, Math.min(designedTasks, this.maxDevs));
+      var devInstances = [];
+      for (var i = 1; i <= devCount; i++) {
+        devInstances.push(baseType + '-' + i);
+      }
+      return devInstances;
+    }
+
+    if (baseType === 'tester') {
+      var reviewCount = this.getReviewCount();
+      if (reviewCount <= 0) return [];
+      var testCount = Math.min(Math.ceil(reviewCount / 2), 2);
+      var testInstances = [];
+      for (var j = 1; j <= testCount; j++) {
+        testInstances.push(baseType + '-' + j);
+      }
+      return testInstances;
+    }
+
+    // Non-scalable: just return the agent type itself
+    return [baseType];
+  }
+
+  // --- Event Handlers (Config-Driven) ---
 
   async onProjectStart() {
     this.log('milestone_complete', null, '=== PROJECT START ===');
 
-    // 1. Architect (serial) — only if no architecture
-    const archPath = path.join(this.projectDir, 'ARCHITECTURE.md');
-    if (!fs.existsSync(archPath) || fs.readFileSync(archPath, 'utf8').trim().length < 100) {
-      await this.runAgent('architect');
-    } else {
-      this.log('agent_complete', 'architect', 'Architecture exists, skipping');
+    var config = this.loadWorkflowConfig();
+    var startup = config.workflow.startup;
+
+    // Execute startup steps sequentially
+    for (var i = 0; i < startup.length; i++) {
+      var step = startup[i];
+
+      // Check condition
+      if (step.condition && !this.evaluateCondition(step.condition)) {
+        this.log('agent_complete', step.agents.join(','), 'Condition not met (' + step.condition + '), skipping');
+        continue;
+      }
+
+      if (step.parallel) {
+        // Run all agents in parallel
+        this.log('agent_start', step.agents.join(','), 'Running in parallel...');
+        var parallelPromises = [];
+        for (var j = 0; j < step.agents.length; j++) {
+          parallelPromises.push(this.runAgent(step.agents[j]));
+        }
+        await Promise.all(parallelPromises);
+      } else {
+        // Run agents serially
+        for (var k = 0; k < step.agents.length; k++) {
+          await this.runAgent(step.agents[k]);
+        }
+      }
     }
 
-    // 2. Monitors in parallel (initial assessment)
-    this.log('agent_start', 'monitors', 'Running initial monitors...');
-    await Promise.all([
-      this.runAgent('vision_monitor'),
-      this.runAgent('prd_monitor'),
-      this.runAgent('dbb_monitor'),
-      this.runAgent('arch_monitor')
-    ]);
-
-    // 3. PM creates milestones (serial)
-    await this.runAgent('pm');
-
-    // 4. Enter work loop
+    // Enter work loop
     await this.workLoop();
   }
 
@@ -310,38 +388,39 @@ class TeamDaemon {
     this.log('agent_start', 'work_loop', '=== WORK LOOP ===');
     this.workLoopCount++;
 
-    const designedTasks = this.getTasksWithDesign();
-    const reviewCount = this.getReviewCount();
-    const todoCount = this.getTodoCount();
+    var config = this.loadWorkflowConfig();
+    var loopConfig = config.workflow.loop;
+    var agentsConfig = config.agents;
+
+    var designedTasks = this.getTasksWithDesign();
+    var reviewCount = this.getReviewCount();
+    var todoCount = this.getTodoCount();
 
     if (todoCount === 0 && reviewCount === 0) {
       this.log('agent_complete', 'work_loop', 'No work available, waiting...');
       return;
     }
 
-    this.log('agent_start', 'work_loop', `Work: todo=${todoCount}, hasDesign=${designedTasks}, review=${reviewCount}`);
+    this.log('agent_start', 'work_loop', 'Work: todo=' + todoCount + ', hasDesign=' + designedTasks + ', review=' + reviewCount);
 
-    // All parallel: tech_lead + developer-N + tester-N
-    const parallel = [];
+    // Parallel phase: run agents from loop.parallel
+    var parallel = [];
+    var parallelAgents = loopConfig.parallel || [];
 
-    // Tech Lead always runs if there are todo tasks (to design undesigned ones)
-    if (todoCount > 0) {
-      parallel.push(this.runAgent('tech_lead'));
-    }
+    for (var i = 0; i < parallelAgents.length; i++) {
+      var agentName = parallelAgents[i];
+      var agentConf = agentsConfig[agentName];
 
-    // Developers: only spawn if there are tasks with designs
-    if (designedTasks > 0) {
-      const devCount = Math.max(1, Math.min(designedTasks, this.maxDevs));
-      for (let i = 1; i <= devCount; i++) {
-        parallel.push(this.runAgent(`developer-${i}`));
-      }
-    }
-
-    // Testers: only spawn if there are tasks in review
-    if (reviewCount > 0) {
-      const testCount = Math.min(Math.ceil(reviewCount / 2), 2);
-      for (let i = 1; i <= testCount; i++) {
-        parallel.push(this.runAgent(`tester-${i}`));
+      if (agentConf && agentConf.scalable) {
+        // Scalable agent: spawn N instances based on available work
+        var instances = this.getScalableAgentInstances(agentName);
+        for (var j = 0; j < instances.length; j++) {
+          parallel.push(this.runAgent(instances[j]));
+        }
+      } else {
+        // Non-scalable: check if there's work for this agent
+        if (agentName === 'tech_lead' && todoCount <= 0) continue;
+        parallel.push(this.runAgent(agentName));
       }
     }
 
@@ -355,9 +434,12 @@ class TeamDaemon {
     // Check for stuck tasks (Task 4)
     this.checkStuckTasks();
 
-    // PM re-assign
-    this.log('agent_start', 'pm', 'Agents completed, PM re-assign');
-    await this.runAgent('pm');
+    // Then phase: run agents from loop.then serially
+    var thenAgents = loopConfig.then || [];
+    for (var t = 0; t < thenAgents.length; t++) {
+      this.log('agent_start', thenAgents[t], 'Agents completed, running ' + thenAgents[t]);
+      await this.runAgent(thenAgents[t]);
+    }
 
     // Check milestone completion
     if (this.isMilestoneComplete()) {
@@ -366,7 +448,7 @@ class TeamDaemon {
     }
 
     // Continue loop if there's still work
-    const kanban = this.getKanban();
+    var kanban = this.getKanban();
     if ((kanban.todo || []).length > 0 || (kanban.review || []).length > 0) {
       await this.workLoop();
     } else {
@@ -375,56 +457,67 @@ class TeamDaemon {
   }
 
   async onMilestoneComplete() {
-    const ms = this.getActiveMilestone();
-    const msId = ms ? ms.id : '?';
-    const msName = ms ? ms.name : 'Unknown';
-    this.log('milestone_complete', msId, `=== MILESTONE ${msId} COMPLETE: ${msName} ===`);
+    var ms = this.getActiveMilestone();
+    var msId = ms ? ms.id : '?';
+    var msName = ms ? ms.name : 'Unknown';
+    this.log('milestone_complete', msId, '=== MILESTONE ' + msId + ' COMPLETE: ' + msName + ' ===');
 
     // Notify
-    await this.notify(`里程碑完成: ${msName}`, `${msName} 已完成，正在运行四重检查...`);
+    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，正在运行四重检查...');
 
     // Ensure review directory exists
     if (ms) {
-      const reviewDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
+      var reviewDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
       if (!fs.existsSync(reviewDir)) {
         fs.mkdirSync(reviewDir, { recursive: true });
       }
     }
 
-    // 4 monitors in parallel (vision + prd + dbb + arch)
+    // Run milestoneCheck from config
+    var config = this.loadWorkflowConfig();
+    var msCheck = config.workflow.milestoneCheck;
+
+    // Parallel phase: monitors
     this.log('agent_start', 'monitors', 'Running milestone review monitors...');
-    await Promise.all([
-      this.runAgent('vision_monitor'),
-      this.runAgent('prd_monitor'),
-      this.runAgent('dbb_monitor'),
-      this.runAgent('arch_monitor')
-    ]);
+    var parallelAgents = msCheck.parallel || [];
+    var parallelPromises = [];
+    for (var i = 0; i < parallelAgents.length; i++) {
+      parallelPromises.push(this.runAgent(parallelAgents[i]));
+    }
+    await Promise.all(parallelPromises);
 
     // Task 3: Cross-Validation of Match Percentages
     this.crossValidateMonitors(msId);
 
-    // Gaps summary → PM plans next milestone
+    // Gaps summary
     this.log('agent_complete', 'monitors', 'Monitors done, PM planning next milestone');
 
     // Notify with review results
-    let reviewSummary = '';
-    const gapsDir = path.join(this.projectDir, '.team/gaps');
-    for (const f of ['vision.json', 'prd.json', 'dbb.json', 'architecture.json']) {
+    var reviewSummary = '';
+    var gapsDir = path.join(this.projectDir, '.team/gaps');
+    var gapFiles = ['vision.json', 'prd.json', 'dbb.json', 'architecture.json'];
+    for (var g = 0; g < gapFiles.length; g++) {
       try {
-        const g = JSON.parse(fs.readFileSync(path.join(gapsDir, f), 'utf8'));
-        const matchVal = g.match != null ? g.match : (g.coverage != null ? g.coverage : 0);
-        reviewSummary += `${f.replace('.json','')}: ${matchVal}% `;
+        var gapData = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[g]), 'utf8'));
+        var matchVal = gapData.match != null ? gapData.match : (gapData.coverage != null ? gapData.coverage : 0);
+        reviewSummary += gapFiles[g].replace('.json', '') + ': ' + matchVal + '% ';
       } catch {}
     }
-    await this.notify(`${msName} 检查完成`, reviewSummary.trim());
+    await this.notify(msName + ' 检查完成', reviewSummary.trim());
 
     // Check for pending CRs (Task 1)
     this.checkPendingCRs();
 
     // Task 6: Auto Git Commit on Milestone Complete
-    this.autoGitCommit(msId, msName);
+    if (config.git && config.git.tagPerMilestone) {
+      this.autoGitCommit(msId, msName);
+    }
 
-    await this.runAgent('pm');
+    // Then phase: run agents from milestoneCheck.then serially
+    var thenAgents = msCheck.then || [];
+    for (var t = 0; t < thenAgents.length; t++) {
+      await this.runAgent(thenAgents[t]);
+    }
 
     // Reset work loop counter for next milestone
     this.workLoopCount = 0;
@@ -436,45 +529,46 @@ class TeamDaemon {
   // --- Task 3: Cross-Validation of Match Percentages ---
 
   crossValidateMonitors(msId) {
-    const gapsDir = path.join(this.projectDir, '.team/gaps');
-    const monitors = ['vision', 'prd', 'dbb', 'architecture'];
-    const matches = {};
+    var gapsDir = path.join(this.projectDir, '.team/gaps');
+    var monitors = ['vision', 'prd', 'dbb', 'architecture'];
+    var matches = {};
 
-    for (const name of monitors) {
+    for (var i = 0; i < monitors.length; i++) {
+      var name = monitors[i];
       try {
-        const data = JSON.parse(fs.readFileSync(path.join(gapsDir, `${name}.json`), 'utf8'));
+        var data = JSON.parse(fs.readFileSync(path.join(gapsDir, name + '.json'), 'utf8'));
         matches[name] = data.match != null ? data.match : (data.coverage != null ? data.coverage : null);
       } catch {
         matches[name] = null;
       }
     }
 
-    const validMatches = Object.entries(matches).filter(function(entry) { return entry[1] != null; });
+    var validMatches = Object.entries(matches).filter(function(entry) { return entry[1] != null; });
     if (validMatches.length < 2) return;
 
-    const values = validMatches.map(function(entry) { return entry[1]; });
-    const maxMatch = Math.max.apply(null, values);
-    const minMatch = Math.min.apply(null, values);
+    var values = validMatches.map(function(entry) { return entry[1]; });
+    var maxMatch = Math.max.apply(null, values);
+    var minMatch = Math.min.apply(null, values);
 
     // Flag suspicious: any >90% but another <50%
     if (maxMatch > 90 && minMatch < 50) {
-      const highMonitors = validMatches.filter(function(e) { return e[1] > 90; }).map(function(e) { return e[0]; });
-      const lowMonitors = validMatches.filter(function(e) { return e[1] < 50; }).map(function(e) { return e[0]; });
-      const warning = `SUSPICIOUS: ${highMonitors.join(',')} report >90% but ${lowMonitors.join(',')} report <50%`;
+      var highMonitors = validMatches.filter(function(e) { return e[1] > 90; }).map(function(e) { return e[0]; });
+      var lowMonitors = validMatches.filter(function(e) { return e[1] < 50; }).map(function(e) { return e[0]; });
+      var warning = 'SUSPICIOUS: ' + highMonitors.join(',') + ' report >90% but ' + lowMonitors.join(',') + ' report <50%';
       this.log('error', 'cross_validation', warning);
       this.notify('Monitor Cross-Validation Warning', warning);
     }
 
     // Verified match = minimum across all monitors
-    const verifiedMatch = minMatch;
+    var verifiedMatch = minMatch;
 
     // Write summary
     if (msId && msId !== '?') {
-      const summaryDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
+      var summaryDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
       if (!fs.existsSync(summaryDir)) {
         fs.mkdirSync(summaryDir, { recursive: true });
       }
-      const summary = {
+      var summary = {
         milestoneId: msId,
         timestamp: new Date().toISOString(),
         monitors: matches,
@@ -482,7 +576,7 @@ class TeamDaemon {
         suspicious: maxMatch > 90 && minMatch < 50
       };
       fs.writeFileSync(path.join(summaryDir, 'summary.json'), JSON.stringify(summary, null, 2));
-      this.log('milestone_complete', msId, `Cross-validation: verified match=${verifiedMatch}%`);
+      this.log('milestone_complete', msId, 'Cross-validation: verified match=' + verifiedMatch + '%');
     }
   }
 
@@ -490,12 +584,13 @@ class TeamDaemon {
 
   autoGitCommit(msId, msName) {
     // Check if there are critical gaps
-    const gapsDir = path.join(this.projectDir, '.team/gaps');
-    let hasCriticalGaps = false;
-    for (const f of ['vision.json', 'prd.json', 'dbb.json', 'architecture.json']) {
+    var gapsDir = path.join(this.projectDir, '.team/gaps');
+    var hasCriticalGaps = false;
+    var gapFiles = ['vision.json', 'prd.json', 'dbb.json', 'architecture.json'];
+    for (var i = 0; i < gapFiles.length; i++) {
       try {
-        const g = JSON.parse(fs.readFileSync(path.join(gapsDir, f), 'utf8'));
-        const matchVal = g.match != null ? g.match : (g.coverage != null ? g.coverage : 0);
+        var g = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[i]), 'utf8'));
+        var matchVal = g.match != null ? g.match : (g.coverage != null ? g.coverage : 0);
         if (matchVal < 30) {
           hasCriticalGaps = true;
           break;
@@ -509,13 +604,13 @@ class TeamDaemon {
     }
 
     try {
-      execSync(`git add -A && git tag -a ${msId}-complete -m "milestone ${msId} complete: ${msName}"`, {
+      execSync('git add -A && git tag -a ' + msId + '-complete -m "milestone ' + msId + ' complete: ' + msName + '"', {
         cwd: this.projectDir,
         stdio: 'pipe'
       });
-      this.log('milestone_complete', msId, `Auto git tag: ${msId}-complete`);
+      this.log('milestone_complete', msId, 'Auto git tag: ' + msId + '-complete');
     } catch (err) {
-      this.log('error', msId, `Auto git tag failed: ${err.message}`);
+      this.log('error', msId, 'Auto git tag failed: ' + err.message);
     }
   }
 
@@ -529,8 +624,8 @@ class TeamDaemon {
     this.busy = true;
 
     try {
-      const milestones = this.getMilestones();
-      const active = (milestones.milestones || []).find(function(m) { return m.status === 'active'; });
+      var milestones = this.getMilestones();
+      var active = (milestones.milestones || []).find(function(m) { return m.status === 'active'; });
 
       if (!milestones.milestones || milestones.milestones.length === 0) {
         // No milestones → project start
@@ -543,13 +638,13 @@ class TeamDaemon {
         // All milestones completed, no active one
         this.log('agent_start', 'pm', 'All milestones completed, checking for new work...');
         await this.runAgent('pm');
-        const newActive = this.getActiveMilestone();
+        var newActive = this.getActiveMilestone();
         if (newActive) {
           await this.workLoop();
         }
       }
     } catch (err) {
-      this.log('error', 'daemon', `Error in main loop: ${err.message}`);
+      this.log('error', 'daemon', 'Error in main loop: ' + err.message);
     } finally {
       this.busy = false;
     }
@@ -560,31 +655,32 @@ class TeamDaemon {
   start() {
     if (this.running) return;
     this.running = true;
-    this.log('agent_start', 'daemon', `DevTeam daemon started (safety=${SAFETY_INTERVAL / 1000}s, timeout=${AGENT_TIMEOUT / 1000}s)`);
+    this.log('agent_start', 'daemon', 'DevTeam daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
 
     // Ensure .team directory exists
-    const teamDir = path.join(this.projectDir, '.team');
+    var teamDir = path.join(this.projectDir, '.team');
     if (!fs.existsSync(teamDir)) {
       fs.mkdirSync(teamDir, { recursive: true });
     }
 
     // Write PID
-    const pidPath = path.join(this.projectDir, '.team/daemon.pid');
+    var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     fs.writeFileSync(pidPath, process.pid.toString());
 
     // Immediate start
     this.run();
 
     // Safety interval: check every 10 minutes
-    this.timer = setInterval(() => {
-      if (this.running) this.run();
+    var self = this;
+    this.timer = setInterval(function() {
+      if (self.running) self.run();
     }, SAFETY_INTERVAL);
   }
 
   stop() {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
-    const pidPath = path.join(this.projectDir, '.team/daemon.pid');
+    var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     try { fs.unlinkSync(pidPath); } catch {}
     this.log('agent_complete', 'daemon', 'DevTeam daemon stopped');
   }
@@ -596,25 +692,25 @@ function ts() {
 
 // --- Entry Point ---
 
-const projectDir = process.argv[2] || process.cwd();
-const devsArg = process.argv.find(function(a) { return a.startsWith('--devs='); });
-const maxDevs = devsArg ? parseInt(devsArg.split('=')[1]) : 3;
+var projectDir = process.argv[2] || process.cwd();
+var devsArg = process.argv.find(function(a) { return a.startsWith('--devs='); });
+var maxDevs = devsArg ? parseInt(devsArg.split('=')[1]) : 3;
 
-const daemon = new TeamDaemon(projectDir, { devs: maxDevs });
+var daemon = new TeamDaemon(projectDir, { devs: maxDevs });
 
 // Process-level error protection
-process.on('uncaughtException', (err) => {
-  console.error(`[${ts()}] Uncaught exception:`, err.message);
+process.on('uncaughtException', function(err) {
+  console.error('[' + ts() + '] Uncaught exception:', err.message);
   // Don't exit — keep running
 });
 
-process.on('unhandledRejection', (err) => {
-  console.error(`[${ts()}] Unhandled rejection:`, err && err.message ? err.message : err);
+process.on('unhandledRejection', function(err) {
+  console.error('[' + ts() + '] Unhandled rejection:', err && err.message ? err.message : err);
   // Don't exit — keep running
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => { daemon.stop(); process.exit(0); });
-process.on('SIGTERM', () => { daemon.stop(); process.exit(0); });
+process.on('SIGINT', function() { daemon.stop(); process.exit(0); });
+process.on('SIGTERM', function() { daemon.stop(); process.exit(0); });
 
 daemon.start();
