@@ -447,12 +447,26 @@ class TeamDaemon {
 
     this.log('agent_start', 'work_loop', 'Work: todo=' + todoCount + ', hasDesign=' + designedTasks + ', review=' + reviewCount);
 
-    // Parallel phase: run agents from loop.parallel
+    // Step 1: PM 规划任务（串行）
+    this.log('agent_start', 'pm', 'PM planning tasks...');
+    await this.runAgent('pm');
+
+    // Step 2: Tech Lead 写 DBB 和技术方案（串行）
+    if (todoCount > 0) {
+      this.log('agent_start', 'tech_lead', 'Tech Lead designing tasks...');
+      await this.runAgent('tech_lead');
+    }
+
+    // Step 3: Developer 和 Tester 并行执行
     var parallel = [];
     var parallelAgents = loopConfig.parallel || [];
 
     for (var i = 0; i < parallelAgents.length; i++) {
       var agentName = parallelAgents[i];
+      
+      // 跳过 pm 和 tech_lead（已在前面串行执行）
+      if (agentName === 'pm' || agentName === 'tech_lead') continue;
+      
       var agentConf = agentsConfig[agentName];
 
       if (agentConf && agentConf.scalable) {
@@ -462,8 +476,6 @@ class TeamDaemon {
           parallel.push(this.runAgent(instances[j]));
         }
       } else {
-        // Non-scalable: check if there's work for this agent
-        if (agentName === 'tech_lead' && todoCount <= 0) continue;
         parallel.push(this.runAgent(agentName));
       }
     }
@@ -472,18 +484,13 @@ class TeamDaemon {
       await Promise.all(parallel);
     }
 
-    // Check for pending CRs after each work loop (Task 1)
+    // Check for pending CRs after each work loop
     this.checkPendingCRs();
 
-    // Check for stuck tasks (Task 4)
+    // Check for stuck tasks
     this.checkStuckTasks();
 
-    // Then phase: run agents from loop.then serially
-    var thenAgents = loopConfig.then || [];
-    for (var t = 0; t < thenAgents.length; t++) {
-      this.log('agent_start', thenAgents[t], 'Agents completed, running ' + thenAgents[t]);
-      await this.runAgent(thenAgents[t]);
-    }
+    // PM 已在循环开头执行，不需要 then 阶段
 
     // Check milestone completion
     if (this.isMilestoneComplete()) {
