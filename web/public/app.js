@@ -104,6 +104,9 @@ async function refresh() {
       return { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [], total: 0, completion: 0 };
     });
 
+    // Cache full kanban for client-side filtering
+    window.cachedKanban = kanban;
+
     renderTopBar(status, agents);
     updateTabMatches(status, gaps);
     renderVision(vision, gaps);
@@ -320,7 +323,46 @@ function renderKanban(kanban, milestones) {
 
 function selectMilestone(msId) {
   selectedMilestoneId = msId;
-  refreshKanban();
+  // Don't re-fetch, just re-render with cached data
+  renderMilestones(cachedMilestones);
+  renderKanbanFromCache();
+}
+
+function renderKanbanFromCache() {
+  // Use last fetched kanban data, filter by selected milestone on client side
+  var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+  
+  // If no milestone selected, use full kanban
+  if (!kanbanMsId) {
+    renderKanban(window.cachedKanban || {}, cachedMilestones);
+    return;
+  }
+  
+  // Filter kanban by milestone
+  var milestone = cachedMilestones.find(function(m) { return m.id === kanbanMsId; });
+  if (!milestone || !window.cachedKanban) {
+    renderKanban({}, cachedMilestones);
+    return;
+  }
+  
+  var taskSet = new Set(milestone.tasks || []);
+  var filtered = {};
+  var cols = ['todo', 'inProgress', 'blocked', 'review', 'testing', 'done'];
+  for (var i = 0; i < cols.length; i++) {
+    var col = cols[i];
+    filtered[col] = (window.cachedKanban[col] || []).filter(function(task) {
+      return taskSet.has(task.id);
+    });
+  }
+  
+  var total = 0;
+  for (var i = 0; i < cols.length; i++) {
+    total += filtered[cols[i]].length;
+  }
+  filtered.total = total;
+  filtered.completion = total > 0 ? Math.round((filtered.done.length / total) * 100) : 0;
+  
+  renderKanban(filtered, cachedMilestones);
 }
 
 async function refreshKanban() {
