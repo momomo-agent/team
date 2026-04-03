@@ -141,11 +141,13 @@ class WorkflowEngine {
       iteration: this.loopIterations.get(this.currentNode) || 0,
 
       // 场景数据（dev-team）
-      todoCount: this.daemon.getTodoCount(),
-      designedTasks: this.daemon.getTasksWithDesign(),
-      reviewCount: this.daemon.getReviewCount(),
-      doneCount: this.daemon.getDoneCount(),
-      maxDevs: this.daemon.maxDevs,
+      todoCount: this.daemon.getTodoCount() || 0,
+      designedTasks: this.daemon.getTasksWithDesign() || 0,
+      reviewCount: this.daemon.getReviewCount() || 0,
+      doneCount: this.daemon.getDoneCount() || 0,
+      inProgressCount: this.daemon.getInProgressCount ? this.daemon.getInProgressCount() : 0,
+      testingCount: this.daemon.getTestingCount ? this.daemon.getTestingCount() : 0,
+      maxDevs: this.daemon.maxDevs || 3,
 
       // 状态检查
       isMilestoneComplete: () => this.daemon.isMilestoneComplete(),
@@ -283,6 +285,8 @@ class WorkflowEngine {
     // 初始化事件队列
     const eventQueue = [];
     const runningAgents = new Set();
+    let idleCount = 0;
+    const maxIdle = 10; // 最多空转 10 次
     
     // 初始触发：检查所有 agents 的初始条件
     for (const [agentName, agentConfig] of Object.entries(node.agents)) {
@@ -297,11 +301,23 @@ class WorkflowEngine {
       while (eventQueue.length > 0) {
         const event = eventQueue.shift();
         await this.handleReactiveEvent(event, node, ctx, runningAgents, eventQueue);
+        idleCount = 0; // 有事件处理，重置空转计数
       }
       
       // 检查退出条件
+      ctx = this.buildContext(); // 刷新 context
       if (this.shouldExitReactive(node, ctx)) {
+        this.daemon.log('workflow', this.currentNode, '[REACTIVE] Exit condition met');
         break;
+      }
+      
+      // 空转检测
+      if (eventQueue.length === 0 && runningAgents.size === 0) {
+        idleCount++;
+        if (idleCount >= maxIdle) {
+          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Max idle reached, exiting');
+          break;
+        }
       }
       
       // 等待一小段时间再检查
