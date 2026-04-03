@@ -368,7 +368,7 @@ class WorkflowEngine {
       try {
         return new Function('ctx', 'Math', `return ${condition}`)(ctx, Math);
       } catch (e) {
-        this.daemon.log('error', 'workflow', `Condition eval error: ${condition} - ${e.message}`);
+        // 条件评估失败，静默返回 false（避免日志爆炸）
         return false;
       }
     }
