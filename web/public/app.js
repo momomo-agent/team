@@ -14,42 +14,50 @@ var dashboardTabs = [];
 fetch('/api/config').then(function(r) { return r.json(); }).then(function(config) {
   teamConfig = config;
   
-  // 初始化左侧文档 tabs
-  if (config.docs && config.docs.items) {
-    initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
-  }
-  
-  // 初始化右侧 dashboard tabs
-  if (config.dashboard && config.dashboard.tabs) {
-    dashboardTabs = config.dashboard.tabs;
-    initializeRightTabs(dashboardTabs);
-    if (dashboardTabs.length > 0) {
-      activeRightTab = dashboardTabs[0].id;
-      activeMobileTab = dashboardTabs[0].id;
+  // 统一的 dashboard 配置
+  if (config.dashboard) {
+    // 左侧 tabs
+    if (config.dashboard.left) {
+      var leftTabs = config.dashboard.left.filter(function(t) { return t.showInUI !== false; });
+      initializeTabs(leftTabs);
     }
+    
+    // 右侧 tabs
+    if (config.dashboard.right) {
+      dashboardTabs = config.dashboard.right;
+      initializeRightTabs(dashboardTabs);
+      if (dashboardTabs.length > 0) {
+        activeRightTab = dashboardTabs[0].id;
+        activeMobileTab = dashboardTabs[0].id;
+      }
+    }
+  }
+  // 兼容旧配置
+  else if (config.docs && config.docs.items) {
+    initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
   }
 }).catch(function() {});
 
-function initializeTabs(docs) {
+function initializeTabs(tabs) {
   var tabBar = document.getElementById('tab-bar');
   var paper = tabBar.nextElementSibling;
   tabBar.innerHTML = '';
   paper.innerHTML = '';
   
-  docs.forEach(function(doc, i) {
-    var tab = document.createElement('div');
-    tab.className = 'folder-tab' + (i === 0 ? ' active' : '');
-    tab.dataset.tab = doc.id;
-    tab.innerHTML = doc.name + ' <span class="tab-match" id="tab-match-' + doc.id + '">—</span>';
-    tabBar.appendChild(tab);
+  tabs.forEach(function(tab, i) {
+    var tabEl = document.createElement('div');
+    tabEl.className = 'folder-tab' + (i === 0 ? ' active' : '');
+    tabEl.dataset.tab = tab.id;
+    tabEl.innerHTML = tab.title + ' <span class="tab-match" id="tab-match-' + tab.id + '">—</span>';
+    tabBar.appendChild(tabEl);
     
     var pane = document.createElement('div');
     pane.className = 'tab-pane' + (i === 0 ? ' active' : '');
-    pane.id = 'pane-' + doc.id;
+    pane.id = 'pane-' + tab.id;
     paper.appendChild(pane);
   });
   
-  if (docs.length > 0) activeTab = docs[0].id;
+  if (tabs.length > 0) activeTab = tabs[0].id;
 }
 
 function initializeRightTabs(tabs) {
@@ -139,13 +147,20 @@ async function refresh() {
   try {
     // Build dynamic doc fetches
     var docFetches = [];
-    if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
-      teamConfig.docs.items.forEach(function(doc) {
-        if (doc.showInUI) {
-          docFetches.push(fetch('/doc/' + doc.id).then(function(r) { return r.json(); }).catch(function() { return {}; }));
-        }
-      });
+    var docItems = [];
+    
+    // 新配置：dashboard.left
+    if (teamConfig && teamConfig.dashboard && teamConfig.dashboard.left) {
+      docItems = teamConfig.dashboard.left.filter(function(t) { return t.showInUI !== false; });
     }
+    // 旧配置：docs.items（兼容）
+    else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+      docItems = teamConfig.docs.items.filter(function(d) { return d.showInUI; });
+    }
+    
+    docItems.forEach(function(doc) {
+      docFetches.push(fetch('/doc/' + doc.id).then(function(r) { return r.json(); }).catch(function() { return {}; }));
+    });
     
     var results = await Promise.all([
       fetch('/status').then(function(r) { return r.json(); }),
@@ -180,9 +195,13 @@ async function refresh() {
     renderTopBar(status, agents);
     updateTabMatches(status, gaps);
     // Render docs dynamically
-    if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
-      teamConfig.docs.items.forEach(function(docConfig, i) {
-        if (docConfig.showInUI && docs[i]) {
+    if (docItems.length > 0) {
+      docItems.forEach(function(docConfig, i) {
+        if (docs[i]) {
+          renderDoc(docConfig.id, docs[i], docConfig);
+        }
+      });
+    }
           renderDoc(docConfig.id, docs[i], gaps);
         }
       });
@@ -510,9 +529,14 @@ function renderDoc(docId, docData, gaps) {
     gapsList = gaps[docId].gaps || gapsList;
   }
   
-  var docConfig = teamConfig && teamConfig.docs && teamConfig.docs.items ? 
-    teamConfig.docs.items.find(function(d) { return d.id === docId; }) : null;
-  var docName = docConfig ? docConfig.name : docId;
+  // 查找 doc 配置（支持新旧格式）
+  var docConfig = null;
+  if (teamConfig && teamConfig.dashboard && teamConfig.dashboard.left) {
+    docConfig = teamConfig.dashboard.left.find(function(d) { return d.id === docId; });
+  } else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
+    docConfig = teamConfig.docs.items.find(function(d) { return d.id === docId; });
+  }
+  var docName = docConfig ? (docConfig.title || docConfig.name) : docId;
   
   var html = renderMatchDisplay(docName + ' Match', match);
   html += renderGapsList(gapsList);
