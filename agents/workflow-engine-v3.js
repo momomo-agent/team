@@ -140,6 +140,7 @@ class WorkflowEngine {
       todoCount: this.daemon.getTodoCount(),
       designedTasks: this.daemon.getTasksWithDesign(),
       reviewCount: this.daemon.getReviewCount(),
+      doneCount: this.daemon.getDoneCount(),
       maxDevs: this.daemon.maxDevs,
 
       // 状态检查

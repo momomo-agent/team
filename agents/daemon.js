@@ -358,6 +358,11 @@ class TeamDaemon {
     return (kanban.review || []).length;
   }
 
+  getDoneCount() {
+    var kanban = this.getKanban();
+    return (kanban.done || []).length;
+  }
+
   getTodoCount() {
     var kanban = this.getKanban();
     return (kanban.todo || []).length;
