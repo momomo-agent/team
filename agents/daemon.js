@@ -21,7 +21,6 @@ const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
 const RUNNER = path.join(__dirname, 'runner.js');
 const DEVTEAM_ROOT = path.join(__dirname, '..');
 const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs/dev-team.json');
-const MAX_HISTORY_ENTRIES = 500;
 
 class TeamDaemon {
   constructor(projectDir, opts) {
@@ -79,23 +78,15 @@ class TeamDaemon {
     // Console output
     console.log('[' + ts() + '] [' + event + '] ' + (agent || '') + ' ' + (details || ''));
 
-    // Append to daemon-history.json
-    var historyPath = path.join(this.projectDir, '.team/daemon-history.json');
-    var history = [];
-    try { 
-      history = JSON.parse(fs.readFileSync(historyPath, 'utf8')); 
-    } catch {}
-    history.push(entry);
-    // Keep last MAX_HISTORY_ENTRIES entries
-    if (history.length > MAX_HISTORY_ENTRIES) {
-      history = history.slice(history.length - MAX_HISTORY_ENTRIES);
-    }
+    // Append to daemon.log (JSONL format)
+    var logPath = path.join(this.projectDir, '.team/daemon.log');
     try {
       var teamDir = path.join(this.projectDir, '.team');
       if (!fs.existsSync(teamDir)) {
         fs.mkdirSync(teamDir, { recursive: true });
       }
-      fs.writeFileSync(historyPath, JSON.stringify(history, null, 2));
+      // Append as single line JSON
+      fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
     } catch (e) {
       // Ignore write errors
     }
