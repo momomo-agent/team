@@ -478,10 +478,67 @@ function renderPipelineInPane(pane, pipeline) {
     return;
   }
   
-  var container = document.createElement('div');
-  container.id = 'rpane-pipeline';
-  pane.appendChild(container);
-  renderPipeline(pipeline);
+  // 直接渲染到 pane，不创建中间 div
+  var html = '';
+  for (var i = 0; i < stages.length; i++) {
+    var stage = stages[i];
+    var hasActive = stage.liveAgents.some(function(a) { return a.status === 'running'; });
+    var hasError = stage.liveAgents.some(function(a) { return a.status === 'error'; });
+    var hasWaiting = stage.liveAgents.some(function(a) { return a.status === 'retrying'; });
+    var stageClass = hasActive ? 'has-active' : hasError ? 'has-error' : '';
+    var dotClass = hasActive ? 'running' : hasError ? 'error' : hasWaiting ? 'waiting' : 'idle';
+
+    var isExpanded = expandedStages[stage.id] !== false;
+
+    html += '<div class="pipeline-stage ' + stageClass + '">';
+    html += '<div class="stage-header" onclick="toggleStage(\'' + stage.id + '\')">';
+    html += '<span class="stage-icon">' + (stage.icon || '⚙️') + '</span>';
+    html += '<span class="stage-name">' + escapeHtml(stage.name) + '</span>';
+    html += '<span class="stage-status-dot ' + dotClass + '"></span>';
+    html += '</div>';
+
+    if (isExpanded) {
+      html += '<div class="stage-body">';
+      if (stage.liveAgents.length === 0) {
+        html += '<div class="stage-empty">等待进入此阶段</div>';
+      } else {
+        for (var j = 0; j < stage.liveAgents.length; j++) {
+          var agent = stage.liveAgents[j];
+          var aStatus = agent.status || 'idle';
+          var aClass = aStatus === 'running' ? 'running' : aStatus === 'error' ? 'error' : aStatus === 'retrying' ? 'retrying' : '';
+          html += '<div class="pipeline-agent ' + aClass + '">';
+          html += '<span class="pa-dot ' + aStatus + '"></span>';
+          html += '<span class="pa-name">' + escapeHtml(agent.name) + '</span>';
+          if (agent.currentTask) {
+            html += '<span class="pa-task">' + escapeHtml(agent.currentTask) + '</span>';
+          }
+          if (agent.lastRun) {
+            html += '<span class="pa-time">' + formatTime(agent.lastRun) + '</span>';
+          }
+          html += '</div>';
+        }
+      }
+      if (stage.recentEvents && stage.recentEvents.length > 0) {
+        html += '<div class="stage-events">';
+        for (var k = 0; k < stage.recentEvents.length; k++) {
+          var ev = stage.recentEvents[k];
+          var evDotClass = ev.event || 'start';
+          html += '<div class="stage-event">';
+          html += '<span class="se-time">' + formatTime(ev.time) + '</span>';
+          html += '<span class="se-dot ' + evDotClass + '"></span>';
+          html += '<span>' + escapeHtml((ev.agent || '') + ' ' + (ev.details || '')) + '</span>';
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    if (i < stages.length - 1) {
+      html += '<div class="pipeline-connector"></div>';
+    }
+  }
+  pane.innerHTML = html;
 }
 
 function renderKanbanInPane(pane, kanban, milestones) {
