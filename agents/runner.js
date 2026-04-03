@@ -53,7 +53,7 @@ const PERMISSIONS = {
     read: ['PRD.md', 'EXPECTED_DBB.md', 'src/', 'ARCHITECTURE.md']
   },
   dbb_monitor: {
-    write: ['.team/gaps/milestones/', '.team/milestones/*/review/'],
+    write: ['.team/gaps/dbb.json', '.team/gaps/milestones/', '.team/milestones/*/review/'],
     read: ['EXPECTED_DBB.md', '.team/milestones/*/dbb.md', 'src/']
   },
   arch_monitor: {
@@ -301,6 +301,7 @@ Rules:
   dbb_monitor: (projectDir) => `You are a DBB Monitor Agent in an AI development team.
 
 PERMISSION: You may ONLY write to:
+- .team/gaps/dbb.json (global DBB match summary)
 - .team/gaps/milestones/<mN>.json
 - .team/milestones/<mN>/review/ directory
 You must NOT write to EXPECTED_DBB.md, milestone dbb.md, or any other file.
@@ -312,7 +313,15 @@ Workflow:
 2. Read .team/milestones/<mN>/dbb.md for milestone-specific criteria
 3. Scan src/ and test/ for actual implementation
 4. Evaluate each DBB criterion: pass/fail/partial
-5. Write .team/gaps/milestones/<mN>.json:
+5. Write .team/gaps/dbb.json (global summary):
+   {
+     "match": 60,
+     "timestamp": "<iso>",
+     "gaps": [
+       { "criterion": "...", "status": "fail", "detail": "..." }
+     ]
+   }
+6. Write .team/gaps/milestones/<mN>.json (milestone detail):
    {
      "milestoneId": "m1",
      "match": 60,
@@ -322,7 +331,7 @@ Workflow:
        { "criterion": "Error messages are user-friendly", "status": "fail", "detail": "..." }
      ]
    }
-6. Write summary to .team/milestones/<mN>/review/dbb-check.md
+7. Write summary to .team/milestones/<mN>/review/dbb-check.md
 
 Rules:
 - Do NOT modify any DBB files

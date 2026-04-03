@@ -1,6 +1,21 @@
 var daemonRunning = false;
 var activeMilestoneId = null;
-var selectedMilestoneId = null; // user-clicked milestone for kanban
+var selectedMilestoneId = null;
+var activeTab = 'vision';
+
+// --- Tab Switching ---
+document.getElementById('tab-bar').addEventListener('click', function(e) {
+  var tab = e.target.closest('.tab');
+  if (!tab) return;
+  var tabName = tab.dataset.tab;
+  if (!tabName) return;
+  activeTab = tabName;
+  document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.tab-pane').forEach(function(p) { p.classList.remove('active'); });
+  tab.classList.add('active');
+  var pane = document.getElementById('pane-' + tabName);
+  if (pane) pane.classList.add('active');
+});
 
 // --- Data Loading ---
 async function refresh() {
@@ -11,7 +26,9 @@ async function refresh() {
       fetch('/vision').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/architecture').then(function(r) { return r.json(); }).catch(function() { return {}; }),
       fetch('/milestones').then(function(r) { return r.json(); }).catch(function() { return { milestones: [] }; }),
-      fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; })
+      fetch('/agents').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch('/prd').then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch('/dbb').then(function(r) { return r.json(); }).catch(function() { return {}; })
     ]);
 
     var status = results[0];
@@ -20,14 +37,13 @@ async function refresh() {
     var arch = results[3];
     var msData = results[4];
     var agents = results[5];
+    var prd = results[6];
+    var dbb = results[7];
 
     var milestones = msData.milestones || [];
-
-    // Find active milestone
     var activeMs = milestones.find(function(m) { return m.status === 'active'; });
     activeMilestoneId = activeMs ? activeMs.id : null;
 
-    // Fetch kanban for selected or active milestone
     var kanbanMsId = selectedMilestoneId || activeMilestoneId;
     var kanbanUrl = kanbanMsId ? '/kanban?milestone=' + encodeURIComponent(kanbanMsId) : '/kanban';
     var kanban = await fetch(kanbanUrl).then(function(r) { return r.json(); }).catch(function() {
@@ -35,18 +51,17 @@ async function refresh() {
     });
 
     renderTopBar(status, agents);
+    updateTabMatches(status, gaps);
     renderVision(vision, gaps);
+    renderPRD(prd, gaps);
+    renderDBB(dbb, gaps);
     renderArchitecture(arch, gaps);
     renderMilestones(milestones);
     renderKanban(kanban, milestones);
 
-    // Update kanban section title with selected milestone
-    var kanbanMsId = selectedMilestoneId || activeMilestoneId;
+    // Update kanban header
     var kanbanMs = milestones.find(function(m) { return m.id === kanbanMsId; });
-    var kanbanLabel = document.querySelector('[data-col="milestones"] .section-title:last-of-type .col-label');
-    if (kanbanLabel) {
-      kanbanLabel.textContent = kanbanMs ? 'Kanban — ' + (kanbanMs.id || '') + ' ' + (kanbanMs.name || '') : 'Kanban';
-    }
+    document.getElementById('kanban-header').textContent = kanbanMs ? 'Kanban — ' + kanbanMs.id + ' ' + (kanbanMs.name || '') : 'Kanban';
   } catch (err) {
     console.error('Refresh error:', err);
   }
@@ -71,6 +86,21 @@ function renderTopBar(status, agents) {
   document.getElementById('favicon').href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='" + color + "'/></svg>";
 
   renderAgents(agents);
+}
+
+// --- Tab match badges ---
+function updateTabMatches(status, gaps) {
+  var matchData = status.match || {};
+  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb || 0, arch: matchData.architecture };
+
+  Object.keys(tabs).forEach(function(key) {
+    var val = tabs[key] || 0;
+    var el = document.getElementById('tab-match-' + key);
+    if (!el) return;
+    var colorClass = val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
+    el.textContent = val + '%';
+    el.className = 'tab-match ' + colorClass;
+  });
 }
 
 // --- Agents ---
@@ -108,61 +138,79 @@ function renderAgents(agents) {
   }).join('');
 }
 
-// --- Vision (left column) ---
+// --- Vision Pane ---
 function renderVision(vision, gaps) {
   var match = 0;
   var gapsList = [];
 
   if (gaps && gaps.vision) {
-    match = gaps.vision.match || 0;
+    match = gaps.vision.match || gaps.vision.coverage || 0;
     gapsList = gaps.vision.gaps || [];
-  } else {
-    match = vision.match || 0;
   }
 
-  var html = renderMatchDisplay('Match', match);
+  var html = renderMatchDisplay('Vision Match', match);
+  html += renderGapsList(gapsList);
 
-  // Gaps bullet list
-  if (gapsList.length > 0) {
-    html += '<ul class="gap-list">';
-    for (var i = 0; i < gapsList.length; i++) {
-      html += '<li>' + escapeHtml(typeof gapsList[i] === 'string' ? gapsList[i] : gapsList[i].description || gapsList[i].gap || JSON.stringify(gapsList[i])) + '</li>';
-    }
-    html += '</ul>';
-  }
-
-  // Collapsible markdown content
   if (vision.content) {
-    html += '<span class="collapsible-toggle" onclick="toggleCollapsible(this)">Show VISION.md</span>';
-    html += '<div class="collapsible-content"><div class="md-content">' + marked.parse(vision.content) + '</div></div>';
+    html += '<div class="md-content">' + marked.parse(vision.content) + '</div>';
   }
 
-  document.getElementById('vision-content').innerHTML = html;
+  document.getElementById('pane-vision').innerHTML = html;
 }
 
-// --- Architecture (left column) ---
+// --- PRD Pane ---
+function renderPRD(prd, gaps) {
+  var match = 0;
+  var gapsList = [];
+
+  if (gaps && gaps.prd) {
+    match = gaps.prd.match || gaps.prd.coverage || 0;
+    gapsList = gaps.prd.gaps || [];
+  }
+
+  var html = renderMatchDisplay('PRD Match', match);
+  html += renderGapsList(gapsList);
+
+  if (prd && prd.content) {
+    html += '<div class="md-content">' + marked.parse(prd.content) + '</div>';
+  }
+
+  document.getElementById('pane-prd').innerHTML = html;
+}
+
+// --- DBB Pane ---
+function renderDBB(dbb, gaps) {
+  var match = 0;
+  var gapsList = [];
+
+  if (gaps && gaps.dbb) {
+    match = gaps.dbb.match || gaps.dbb.coverage || 0;
+    gapsList = gaps.dbb.gaps || [];
+  }
+
+  var html = renderMatchDisplay('DBB Match', match);
+  html += renderGapsList(gapsList);
+
+  if (dbb && dbb.content) {
+    html += '<div class="md-content">' + marked.parse(dbb.content) + '</div>';
+  }
+
+  document.getElementById('pane-dbb').innerHTML = html;
+}
+
+// --- Architecture Pane ---
 function renderArchitecture(arch, gaps) {
   var match = 0;
   var gapsList = [];
 
   if (gaps && gaps.architecture) {
-    match = gaps.architecture.match || 0;
+    match = gaps.architecture.match || gaps.architecture.coverage || 0;
     gapsList = gaps.architecture.gaps || [];
-  } else {
-    match = arch.match || 0;
   }
 
-  var el = document.getElementById('architecture-content');
-  var html = renderMatchDisplay('Match', match);
-
-  // Gaps bullet list
-  if (gapsList.length > 0) {
-    html += '<ul class="gap-list">';
-    for (var i = 0; i < gapsList.length; i++) {
-      html += '<li>' + escapeHtml(typeof gapsList[i] === 'string' ? gapsList[i] : gapsList[i].description || gapsList[i].gap || JSON.stringify(gapsList[i])) + '</li>';
-    }
-    html += '</ul>';
-  }
+  var el = document.getElementById('pane-arch');
+  var html = renderMatchDisplay('Architecture Match', match);
+  html += renderGapsList(gapsList);
 
   // Module completion list
   var modules = arch.modules || [];
@@ -180,19 +228,10 @@ function renderArchitecture(arch, gaps) {
     html += '</div>';
   }
 
-  // Mermaid diagram
-  if (arch.diagram) {
-    html += '<div class="mermaid">' + arch.diagram + '</div>';
-  }
-
   el.innerHTML = html;
-
-  if (arch.diagram) {
-    try { mermaid.run({ nodes: el.querySelectorAll('.mermaid') }); } catch (e) {}
-  }
 }
 
-// --- Match Display (large number + colored bar) ---
+// --- Shared Render Helpers ---
 function renderMatchDisplay(label, value) {
   var colorClass = value > 80 ? 'green' : value > 50 ? 'yellow' : 'red';
   return '<div class="match-display">' +
@@ -202,11 +241,23 @@ function renderMatchDisplay(label, value) {
     '</div>';
 }
 
-// --- Milestones (right column) ---
+function renderGapsList(gapsList) {
+  if (!gapsList || gapsList.length === 0) return '';
+  var html = '<ul class="gap-list">';
+  for (var i = 0; i < gapsList.length; i++) {
+    var g = gapsList[i];
+    var text = typeof g === 'string' ? g : g.description || g.details || g.gap || g.module || JSON.stringify(g);
+    html += '<li>' + escapeHtml(text) + '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
+
+// --- Milestones ---
 function renderMilestones(milestones) {
   var el = document.getElementById('milestone-content');
   if (!milestones || milestones.length === 0) {
-    el.innerHTML = '<div style="color:#666;font-size:11px;">No milestones yet</div>';
+    el.innerHTML = '<div style="color:#666;font-size:11px;padding:8px;">No milestones yet</div>';
     return;
   }
 
@@ -217,7 +268,7 @@ function renderMilestones(milestones) {
       var statusLabel = m.status === 'completed' ? 'done' : m.status === 'active' ? 'active' : 'planned';
       var kanbanMsId = selectedMilestoneId || activeMilestoneId;
       var selectedClass = (m.id === kanbanMsId) ? ' selected' : '';
-      return '<div class="ms-card ' + statusClass + selectedClass + '" data-ms-id="' + escapeHtml(m.id) + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')" style="cursor:pointer;">' +
+      return '<div class="ms-card ' + statusClass + selectedClass + '" onclick="selectMilestone(\'' + escapeHtml(m.id) + '\')">' +
         '<div class="ms-head">' +
           '<span class="ms-name">' + escapeHtml((m.id ? m.id + ' ' : '') + (m.name || '')) + '</span>' +
           '<span class="ms-status-badge ' + statusLabel + '">' + statusLabel + '</span>' +
@@ -231,11 +282,15 @@ function renderMilestones(milestones) {
   '</div>';
 }
 
-// --- Kanban (right column, active milestone only) ---
+function selectMilestone(msId) {
+  selectedMilestoneId = (selectedMilestoneId === msId) ? null : msId;
+  refresh();
+}
+
+// --- Kanban ---
 function renderKanban(kanban, milestones) {
   var el = document.getElementById('kanban-content');
 
-  // Build task→milestone mapping
   var taskToMs = {};
   (milestones || []).forEach(function(m) {
     (m.tasks || []).forEach(function(tid) { taskToMs[tid] = m; });
@@ -253,13 +308,11 @@ function renderKanban(kanban, milestones) {
   var total = kanban.total || 0;
   var completion = kanban.completion || 0;
 
-  // Stats row
   var html = '<div class="kanban-stats">' +
     '<div class="kanban-stat"><strong>' + total + '</strong>tasks</div>' +
     '<div class="kanban-stat"><strong>' + completion + '%</strong>complete</div>' +
   '</div>';
 
-  // 6-column kanban grid
   html += '<div class="kanban-grid">';
   for (var i = 0; i < columns.length; i++) {
     var col = columns[i];
@@ -289,21 +342,7 @@ function renderKanban(kanban, milestones) {
   el.innerHTML = html;
 }
 
-// --- Select milestone to show its kanban ---
-function selectMilestone(msId) {
-  selectedMilestoneId = (selectedMilestoneId === msId) ? null : msId; // toggle
-  refresh();
-}
-
-// --- Collapsible toggle ---
-function toggleCollapsible(el) {
-  var content = el.nextElementSibling;
-  var isOpen = content.classList.contains('open');
-  content.classList.toggle('open');
-  el.textContent = isOpen ? 'Show VISION.md' : 'Hide VISION.md';
-}
-
-// --- Escape HTML ---
+// --- Helpers ---
 function escapeHtml(str) {
   if (!str) return '';
   return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -314,36 +353,6 @@ document.getElementById('toggle-daemon').addEventListener('click', function() {
   var action = daemonRunning ? 'stop' : 'start';
   fetch('/daemon/' + action, { method: 'POST' }).then(function() {
     setTimeout(refresh, 1000);
-  });
-});
-
-// --- Column Focus: double-click title to expand, X to close ---
-document.querySelectorAll('.col-label').forEach(function(label) {
-  label.addEventListener('dblclick', function() {
-    var grid = document.getElementById('main-grid');
-    var thisCol = label.closest('.col');
-    var cols = document.querySelectorAll('.col');
-
-    cols.forEach(function(c) {
-      if (c === thisCol) {
-        c.classList.remove('hidden');
-        c.querySelector('.col-close').style.display = '';
-      } else {
-        c.classList.add('hidden');
-      }
-    });
-    grid.classList.add('focused');
-  });
-});
-
-document.querySelectorAll('.col-close').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    var grid = document.getElementById('main-grid');
-    document.querySelectorAll('.col').forEach(function(c) {
-      c.classList.remove('hidden');
-      c.querySelector('.col-close').style.display = 'none';
-    });
-    grid.classList.remove('focused');
   });
 });
 

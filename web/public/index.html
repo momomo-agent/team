@@ -5,8 +5,6 @@
   <title id="page-title">DevTeam</title>
   <link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%23888'/></svg>">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
-  <script>mermaid.initialize({ startOnLoad: false, theme: 'dark' });</script>
   <style>
     :root {
       --bg: #0a0a0a;
@@ -40,24 +38,38 @@
     .daemon-btn { padding: 5px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 4px; color: var(--text); cursor: pointer; font-size: 11px; font-family: inherit; transition: border-color 0.2s; }
     .daemon-btn:hover { border-color: #555; }
 
-    /* Three-column layout */
-    .main { display: grid; grid-template-columns: 1fr 1fr 1.5fr; height: calc(100vh - 48px); }
-    .main.focused { grid-template-columns: 1fr !important; }
-    .col { padding: 16px; overflow-y: auto; border-right: 1px solid var(--border); }
-    .col:last-child { border-right: none; }
+    /* Two-column layout */
+    .main { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 48px); }
+    .col { overflow-y: auto; }
     .col::-webkit-scrollbar { width: 5px; }
     .col::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
     .col::-webkit-scrollbar-track { background: transparent; }
-    .col.hidden { display: none; }
 
-    /* Section titles */
-    .section-title { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 10px; font-weight: 700; display: flex; justify-content: space-between; align-items: center; cursor: default; user-select: none; }
-    .col-close { cursor: pointer; font-size: 14px; color: var(--dim); padding: 2px 6px; display: none; border-radius: 3px; }
-    .col-close:hover { color: var(--text); background: var(--card); }
-    .section-divider { border: none; border-top: 1px solid var(--border); margin: 18px 0 14px; }
+    /* Left column: tabs + content */
+    .col-left { border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+
+    /* Tab bar */
+    .tab-bar { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+    .tab { padding: 10px 16px; cursor: pointer; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); border-bottom: 2px solid transparent; transition: all 0.2s; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+    .tab.active { color: var(--text); border-bottom-color: var(--blue); }
+    .tab-match { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 3px; }
+    .tab-match.green { background: rgba(74,222,128,0.15); color: var(--accent); }
+    .tab-match.yellow { background: rgba(245,158,11,0.15); color: var(--warn); }
+    .tab-match.red { background: rgba(239,68,68,0.15); color: var(--error); }
+
+    /* Tab content */
+    .tab-content { flex: 1; overflow-y: auto; padding: 16px; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* Right column */
+    .col-right { display: flex; flex-direction: column; }
+    .section-header { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; padding: 12px 16px 8px; flex-shrink: 0; }
+    .section-divider { border: none; border-top: 1px solid var(--border); margin: 0; }
 
     /* Match percentage - large number with bar */
-    .match-display { margin-bottom: 12px; }
+    .match-display { margin-bottom: 16px; }
     .match-number { font-size: 36px; font-weight: 800; line-height: 1; }
     .match-number .pct { font-size: 20px; font-weight: 600; }
     .match-number.green { color: var(--accent); }
@@ -71,22 +83,16 @@
     .match-label { font-size: 10px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
 
     /* Gaps list */
-    .gap-list { list-style: none; padding: 0; margin: 8px 0 0; }
+    .gap-list { list-style: none; padding: 0; margin: 8px 0 16px; }
     .gap-list li { font-size: 11px; color: #aaa; padding: 3px 0 3px 12px; position: relative; line-height: 1.5; }
     .gap-list li::before { content: '\2022'; position: absolute; left: 0; color: var(--warn); }
 
     /* Markdown content */
-    .md-content { font-size: 12px; line-height: 1.6; color: #bbb; }
+    .md-content { font-size: 12px; line-height: 1.6; color: #bbb; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
     .md-content h1, .md-content h2, .md-content h3 { color: var(--text); margin: 10px 0 5px; }
     .md-content h1 { font-size: 15px; } .md-content h2 { font-size: 13px; } .md-content h3 { font-size: 12px; }
     .md-content ul { padding-left: 16px; }
     .md-content code { background: var(--card); padding: 1px 4px; border-radius: 3px; }
-
-    /* Collapsible */
-    .collapsible-toggle { font-size: 11px; color: var(--blue); cursor: pointer; margin-top: 8px; display: inline-block; }
-    .collapsible-toggle:hover { text-decoration: underline; }
-    .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease; }
-    .collapsible-content.open { max-height: 5000px; }
 
     /* Module list */
     .module-list { margin-top: 8px; }
@@ -98,12 +104,10 @@
     .module-status.missing { background: rgba(239,68,68,0.15); color: var(--error); }
     .module-coverage { font-size: 10px; color: var(--dim); min-width: 32px; text-align: right; }
 
-    /* Mermaid */
-    .mermaid { background: var(--card); border-radius: 6px; padding: 10px; border: 1px solid var(--border); margin-top: 8px; overflow-x: auto; }
-
     /* Milestone cards */
+    .ms-section { padding: 0 16px 12px; overflow-y: auto; }
     .ms-list { display: flex; flex-direction: column; gap: 6px; }
-    .ms-card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; transition: all 0.2s; }
+    .ms-card { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; transition: all 0.2s; cursor: pointer; }
     .ms-card:hover { border-color: #333; }
     .ms-card.active { border-color: var(--blue); border-width: 2px; }
     .ms-card.done { opacity: 0.5; }
@@ -124,11 +128,12 @@
     .ms-pct { font-size: 10px; color: var(--dim); min-width: 60px; text-align: right; }
 
     /* Kanban */
+    .kanban-section { flex: 1; overflow-y: auto; padding: 0 16px 16px; }
     .kanban-stats { display: flex; gap: 12px; margin-bottom: 12px; padding: 8px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
     .kanban-stat { color: var(--dim); }
     .kanban-stat strong { color: var(--text); font-size: 14px; margin-right: 3px; }
     .kanban-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-    .kanban-col { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 8px; min-height: 100px; }
+    .kanban-col { background: var(--card); border: 1px solid var(--border); border-radius: 6px; padding: 8px; min-height: 80px; }
     .kanban-col-title { font-size: 10px; color: var(--dim); font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
     .kanban-count { background: var(--border); padding: 1px 6px; border-radius: 10px; font-size: 10px; color: var(--text); }
     .task { padding: 8px; border-radius: 4px; margin-bottom: 5px; border: 1px solid var(--border); background: var(--bg); font-size: 11px; transition: border-color 0.2s; }
@@ -153,27 +158,31 @@
     <button id="toggle-daemon" class="daemon-btn">Start</button>
   </div>
 
-  <!-- Three-column Main -->
-  <div class="main" id="main-grid">
-    <!-- Left: Vision -->
-    <div class="col" data-col="vision">
-      <div class="section-title"><span class="col-label">Vision</span><span class="col-close">&#10005;</span></div>
-      <div id="vision-content"></div>
-    </div>
-
-    <!-- Middle: Architecture -->
-    <div class="col" data-col="architecture">
-      <div class="section-title"><span class="col-label">Architecture</span><span class="col-close">&#10005;</span></div>
-      <div id="architecture-content"></div>
+  <!-- Two-column Main -->
+  <div class="main">
+    <!-- Left: Tab bar + content -->
+    <div class="col col-left">
+      <div class="tab-bar" id="tab-bar">
+        <div class="tab active" data-tab="vision">Vision <span class="tab-match" id="tab-match-vision">-</span></div>
+        <div class="tab" data-tab="prd">PRD <span class="tab-match" id="tab-match-prd">-</span></div>
+        <div class="tab" data-tab="dbb">DBB <span class="tab-match" id="tab-match-dbb">-</span></div>
+        <div class="tab" data-tab="arch">Arch <span class="tab-match" id="tab-match-arch">-</span></div>
+      </div>
+      <div class="tab-content">
+        <div class="tab-pane active" id="pane-vision"></div>
+        <div class="tab-pane" id="pane-prd"></div>
+        <div class="tab-pane" id="pane-dbb"></div>
+        <div class="tab-pane" id="pane-arch"></div>
+      </div>
     </div>
 
     <!-- Right: Milestones + Kanban -->
-    <div class="col" data-col="milestones">
-      <div class="section-title"><span class="col-label">Milestones</span><span class="col-close">&#10005;</span></div>
-      <div id="milestone-content"></div>
+    <div class="col col-right">
+      <div class="section-header">Milestones</div>
+      <div class="ms-section" id="milestone-content"></div>
       <hr class="section-divider">
-      <div class="section-title"><span class="col-label">Kanban</span></div>
-      <div id="kanban-content"></div>
+      <div class="section-header" id="kanban-header">Kanban</div>
+      <div class="kanban-section" id="kanban-content"></div>
     </div>
   </div>
 

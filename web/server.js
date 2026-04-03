@@ -48,7 +48,7 @@ function parseArchitecture(content) {
 function getModuleCompletion() {
   const archContent = readFile(path.join(projectDir, 'ARCHITECTURE.md')) || '';
   const modules = [];
-  // Parse module sections - look for ## headings that describe modules
+  // Parse module sections - look for ## headings
   const moduleRegex = /^##\s+(.+)/gm;
   let match;
   while ((match = moduleRegex.exec(archContent)) !== null) {
@@ -59,15 +59,36 @@ function getModuleCompletion() {
   }
   // Check gaps for module-level data
   const archGaps = readJSON(path.join(projectDir, '.team/gaps/architecture.json'));
-  if (archGaps && archGaps.modules) {
-    for (const mod of archGaps.modules) {
-      const existing = modules.find(m => m.name === mod.name);
-      if (existing) {
-        existing.status = mod.status || 'partial';
-        existing.coverage = mod.coverage || 0;
-      } else {
-        modules.push(mod);
+  if (archGaps) {
+    // Support archGaps.modules (array) or archGaps.details (object keyed by module name)
+    if (archGaps.modules) {
+      for (const mod of archGaps.modules) {
+        const existing = modules.find(m => m.name === mod.name);
+        if (existing) {
+          existing.status = mod.status || 'partial';
+          existing.coverage = mod.coverage || 0;
+        } else {
+          modules.push(mod);
+        }
       }
+    }
+    if (archGaps.details && typeof archGaps.details === 'object') {
+      for (const [key, detail] of Object.entries(archGaps.details)) {
+        const status = detail.status || 'partial';
+        const cov = status === 'implemented' ? 100 : status === 'missing' ? 0 : 50;
+        // Try to match to existing module by name
+        const existing = modules.find(m => m.name.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(m.name.toLowerCase()));
+        if (existing) {
+          existing.status = status;
+          existing.coverage = cov;
+        } else {
+          modules.push({ name: key, status, coverage: cov });
+        }
+      }
+    }
+    // If no modules parsed from headers but gaps has overall coverage, set all to that
+    if (modules.length > 0 && archGaps.coverage === 100) {
+      modules.forEach(m => { if (m.status === 'partial' && m.coverage === 0) { m.status = 'implemented'; m.coverage = 100; } });
     }
   }
   return modules;
@@ -108,7 +129,7 @@ function getAllGaps() {
   const gapsDir = path.join(projectDir, '.team/gaps');
   const result = {};
 
-  for (const name of ['vision', 'prd', 'architecture']) {
+  for (const name of ['vision', 'prd', 'dbb', 'architecture']) {
     const data = readJSON(path.join(gapsDir, `${name}.json`));
     if (data) {
       // Normalize: agent may write 'coverage' instead of 'match'
@@ -185,6 +206,7 @@ const server = http.createServer((req, res) => {
       match: {
         vision: gaps.vision ? gaps.vision.match : 0,
         prd: gaps.prd ? gaps.prd.match : 0,
+        dbb: gaps.dbb ? gaps.dbb.match : 0,
         architecture: gaps.architecture ? gaps.architecture.match : 0
       }
     });
@@ -243,8 +265,23 @@ const server = http.createServer((req, res) => {
     const data = parseMarkdown(path.join(projectDir, 'ARCHITECTURE.md'));
     const arch = parseArchitecture(data.content);
     const gaps = readJSON(path.join(projectDir, '.team/gaps/architecture.json'));
+    if (gaps && gaps.match == null && gaps.coverage != null) gaps.match = gaps.coverage;
     const modules = getModuleCompletion();
     sendJSON({ ...arch, content: data.content, match: gaps ? gaps.match : data.match, modules });
+  }
+  else if (pathname === '/prd') {
+    const data = parseMarkdown(path.join(projectDir, 'PRD.md'));
+    const gaps = readJSON(path.join(projectDir, '.team/gaps/prd.json'));
+    if (gaps && gaps.match == null && gaps.coverage != null) gaps.match = gaps.coverage;
+    if (gaps) data.match = gaps.match;
+    sendJSON(data);
+  }
+  else if (pathname === '/dbb') {
+    const data = parseMarkdown(path.join(projectDir, 'EXPECTED_DBB.md'));
+    const gaps = readJSON(path.join(projectDir, '.team/gaps/dbb.json'));
+    if (gaps && gaps.match == null && gaps.coverage != null) gaps.match = gaps.coverage;
+    if (gaps) data.match = gaps.match;
+    sendJSON(data);
   }
   else if (pathname === '/agents') {
     sendJSON(getAgents());
