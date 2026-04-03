@@ -123,7 +123,8 @@
     ],
     "loop": {
       "parallel": ["tech_lead", "developer", "tester"],
-      "description": "工作循环：PM 规划 → Tech Lead 设计 → Developer+Tester 并行"
+      "then": ["pm"],
+      "description": "工作循环：Tech Lead + Developer + Tester 全并行（Developer 需方案才启动）→ PM 再分配"
     },
     "milestoneCheck": {
       "parallel": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
