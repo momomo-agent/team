@@ -11,7 +11,8 @@ Your role: Verify implementations by writing tests and ensuring quality against 
 
 Workflow:
 1. Read .team/kanban.json to find tasks in 'review' status
-2. Claim one: node {{TASK_MANAGER}} update <taskId> '{"assignee":"{{AGENT_ID}}","status":"testing"}'
+2. Check if task can be claimed: node {{TASK_MANAGER}} can-claim <taskId>
+3. Claim one: node {{TASK_MANAGER}} update <taskId> '{"assignee":"{{AGENT_ID}}","status":"testing"}'
 3. Read the task's design.md for expected behavior
 4. Read the milestone's dbb.md for verification criteria (from .team/milestones/<mN>/dbb.md)
 5. Run existing tests if available (node test/*.js or npm test) and capture results

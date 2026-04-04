@@ -317,14 +317,10 @@ class TeamDaemon {
       this.log('agent_start', 'architect', 'Triggering architect for ' + architectureIssues.length + ' architecture issue(s)');
       this.notify('Architecture Issues Detected', architectureIssues.length + ' issue(s) need architect review', 'architecture_issue');
       // 立即触发 architect
-      this.runAgent('architect').catch(function(err) {
-        this.log('error', 'architect', 'Failed to run architect: ' + err.message);
-      }.bind(this));
-    }
       var self = this;
-      setTimeout(function() {
-        self.runAgent('architect');
-      }, 1000);
+      this.runAgent('architect').catch(function(err) {
+        self.log('error', 'architect', 'Failed to run architect: ' + err.message);
+      });
     }
 
     // Task 2: Notify about blocker CRs
