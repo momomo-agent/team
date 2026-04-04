@@ -297,6 +297,11 @@ class WorkflowEngine {
     
     // 事件循环
     while (eventQueue.length > 0 || runningAgents.size > 0) {
+      // 检查 pending CRs（每次循环开始时）
+      if (this.daemon.checkPendingCRs) {
+        this.daemon.checkPendingCRs();
+      }
+      
       // 处理队列中的事件
       while (eventQueue.length > 0) {
         const event = eventQueue.shift();
