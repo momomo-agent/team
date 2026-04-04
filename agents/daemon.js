@@ -358,10 +358,31 @@ class TeamDaemon {
     var anyRunning = Object.values(agentStatus).some(function(a) { return a.status === 'running'; });
     if (anyRunning) return; // agents still working, not stuck yet
 
+    // 修复 3: 超时检测（>2小时强制标记 timeout）
+    var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
+    var tm = new TaskManager(this.projectDir);
+    var now = Date.now();
+    var TWO_HOURS = 2 * 60 * 60 * 1000;
+
+    for (var i = 0; i < inProgress.length; i++) {
+      var taskId = inProgress[i];
+      try {
+        var task = tm.getTask(taskId);
+        if (!task) continue;
+
+        var updated = new Date(task.updated).getTime();
+        var elapsed = now - updated;
+
+        // 超过 2 小时未更新 → timeout
+        if (elapsed > TWO_HOURS) {
+          tm.updateTask(taskId, { status: 'todo', assignee: null });
+          this.log('error', taskId, 'Task timeout (>2h), moved back to todo');
+        }
+      } catch {}
+    }
+
     // If we've done 2+ work loops with same inProgress tasks, move them back to todo
     if (this.workLoopCount >= 2 && inProgress.length > 0) {
-      var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
-      var tm = new TaskManager(this.projectDir);
       for (var i = 0; i < inProgress.length; i++) {
         var taskId = inProgress[i];
         try {
