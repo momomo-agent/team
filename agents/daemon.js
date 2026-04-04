@@ -1090,6 +1090,17 @@ class TeamDaemon {
 
   start() {
     if (this.running) return;
+    
+    // Check required files before starting
+    var visionPath = path.join(this.projectDir, 'VISION.md');
+    if (!fs.existsSync(visionPath)) {
+      console.error('\n❌ ERROR: VISION.md not found in project directory');
+      console.error('   Path: ' + this.projectDir);
+      console.error('\nDevTeam requires VISION.md to understand the product goals.');
+      console.error('Please create VISION.md with your product vision before starting the daemon.\n');
+      process.exit(1);
+    }
+    
     this.running = true;
     this.log('agent_start', 'daemon', 'DevTeam daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
 
