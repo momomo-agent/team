@@ -131,11 +131,16 @@ function init(dirName) {
   const docsDir = path.join(projectDir, docsRoot);
   
   if (config.docs && config.docs.items) {
+    // Source file map: doc id → root-level filename
+    const srcMap = { vision: 'VISION.md', prd: 'PRD.md', dbb: 'EXPECTED_DBB.md', arch: 'ARCHITECTURE.md' };
     config.docs.items.forEach(function(doc) {
       const docPath = path.join(docsDir, doc.file);
       if (!fs.existsSync(docPath)) {
-        const defaultContent = `# ${doc.name}\n\n`;
-        fs.writeFileSync(docPath, defaultContent);
+        const srcFile = srcMap[doc.id] && path.join(projectDir, srcMap[doc.id]);
+        const content = (srcFile && fs.existsSync(srcFile))
+          ? fs.readFileSync(srcFile, 'utf8')
+          : `# ${doc.name}\n\n`;
+        fs.writeFileSync(docPath, content);
       }
     });
   }
