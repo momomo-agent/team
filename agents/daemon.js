@@ -274,6 +274,10 @@ class TeamDaemon {
     var files;
     try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return; }
 
+    // CR 趋势监控：检测异常增长
+    var pendingCount = 0;
+    var totalCount = files.length;
+    
     var blockerCRs = [];
     var architectureIssues = [];
     
@@ -282,6 +286,8 @@ class TeamDaemon {
       try {
         var cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
         if (cr.status === 'pending') {
+          pendingCount++;
+          
           // Check if this is an architecture issue (should trigger architect, not CR)
           var isArchIssue = cr.reason && (
             cr.reason.toLowerCase().includes('architecture') ||
@@ -310,6 +316,12 @@ class TeamDaemon {
           }
         }
       } catch {}
+    }
+
+    // CR 异常检测：pending CR 过多
+    if (pendingCount > 20) {
+      this.log('error', 'cr_anomaly', 'CR 异常增长: ' + pendingCount + ' pending CRs (total: ' + totalCount + ')');
+      this.notify('CR Anomaly Detected', pendingCount + ' pending CRs detected - possible duplicate submissions', 'cr_anomaly');
     }
 
     // 修复 5: 真正触发 architect（不只是通知）
