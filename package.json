@@ -1,0 +1,27 @@
+{
+  "name": "team",
+  "version": "1.0.0",
+  "description": "",
+  "main": "poc-workflow-v3.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/momomo-agent/devteam.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/momomo-agent/devteam/issues"
+  },
+  "homepage": "https://github.com/momomo-agent/devteam#readme",
+  "dependencies": {
+    "proper-lockfile": "^4.1.2"
+  }
+}
