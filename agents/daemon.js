@@ -275,11 +275,31 @@ class TeamDaemon {
     try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return; }
 
     var blockerCRs = [];
+    var architectureIssues = [];
+    
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
       try {
         var cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
         if (cr.status === 'pending') {
+          // Check if this is an architecture issue (should trigger architect, not CR)
+          var isArchIssue = cr.reason && (
+            cr.reason.toLowerCase().includes('architecture') ||
+            cr.reason.toLowerCase().includes('架构') ||
+            cr.reason.toLowerCase().includes('missing component') ||
+            cr.reason.toLowerCase().includes('design flaw')
+          );
+          
+          if (isArchIssue) {
+            architectureIssues.push(cr);
+            this.log('error', cr.id, 'Architecture issue detected, should trigger architect instead of CR');
+            // Auto-resolve this CR and trigger architect
+            cr.status = 'resolved';
+            cr.resolution = 'Converted to architect task';
+            fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
+            continue;
+          }
+          
           this.log('cr_created', cr.from || 'unknown', 'CR ' + (cr.id || f) + ': ' + (cr.reason || 'no reason'));
           this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'), 'cr_created');
           
@@ -290,6 +310,17 @@ class TeamDaemon {
           }
         }
       } catch {}
+    }
+
+    // Trigger architect if architecture issues detected
+    if (architectureIssues.length > 0) {
+      this.log('agent_start', 'architect', 'Triggering architect for ' + architectureIssues.length + ' architecture issue(s)');
+      this.notify('Architecture Issues Detected', architectureIssues.length + ' issue(s) need architect review', 'architecture_issue');
+      // Queue architect run (will be picked up in next work loop)
+      var self = this;
+      setTimeout(function() {
+        self.runAgent('architect');
+      }, 1000);
     }
 
     // Task 2: Notify about blocker CRs

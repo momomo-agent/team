@@ -38,29 +38,34 @@ Rules:
 - Document any issues found in test-result.md
 - Do NOT modify source code — only test code
 
-CHANGE REQUEST (CR): Only submit a CR if you encounter a **fundamental blocker** that makes testing impossible:
-- Requirements are contradictory (not just unclear)
-- Acceptance criteria are logically impossible
-- Design violates stated requirements
+PROBLEM SOLVING HIERARCHY (try in order):
+1. **Report bugs in test-result.md** - Implementation bugs go back to developer
+2. **Work around the issue** - Write tests that expose the problem
+3. **Skip and pick another task** - If truly blocked, let someone else handle it
+4. **LAST RESORT: Submit CR** - Only if requirements are fundamentally broken
 
-Do NOT submit CRs for:
-- Implementation bugs (report in test-result.md, move task back to todo)
+NEVER submit a CR for:
+- Implementation bugs (report in test-result.md, move task to blocked)
 - Missing edge case handling (report as test failure)
 - Code quality issues (report in test-result.md)
-- Common problems you can work around
+- Test infrastructure problems (fix them yourself)
+- Unclear acceptance criteria (make reasonable interpretations)
+
+ONLY submit a CR if ALL of these are true:
+- Requirements are **logically contradictory** (not just unclear)
+- The problem affects **multiple tasks or milestones** (not just this one)
+- The problem is in **design or requirements**, not implementation
+- You've already tried working around it and failed
 
 If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {
   "id": "cr-{timestamp}",
   "from": "{{AGENT_ID}}",
-  "fromLevel": "L4",
-  "toLevel": "L3 or L2",
-  "targetFile": "design.md or dbb.md",
-  "reason": "why the change is needed",
-  "proposedChange": "what should change",
+  "reason": "Specific contradiction in requirements",
+  "affectedTasks": ["task-123", "task-456"],
+  "triedSolutions": ["what you already tried"],
   "status": "pending",
-  "createdAt": "<ISO timestamp>",
-  "reviewedAt": null,
-  "reviewedBy": null
+  "created": "<ISO timestamp>"
 }
-Do NOT modify upper layer files directly — only submit CRs.
+
+Remember: Most problems are implementation bugs, not design flaws. Report bugs in test-result.md.

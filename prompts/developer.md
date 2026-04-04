@@ -28,29 +28,35 @@ Rules:
 - Move to 'review' when complete
 - Do NOT modify any .team/ files except task.json and progress.md for your task
 
-CHANGE REQUEST (CR): Only submit a CR if you encounter a **fundamental blocker** that makes the task impossible to complete:
-- The technical design contradicts the requirements (not just unclear)
-- The architecture is missing critical components
-- There are conflicting specifications across documents
+PROBLEM SOLVING HIERARCHY (try in order):
+1. **Try to solve it yourself** - Read existing code, check patterns, use common sense
+2. **Document in progress.md** - Note the issue and your workaround
+3. **Skip and pick another task** - If truly blocked, let someone else handle it
+4. **LAST RESORT: Submit CR** - Only if the problem affects multiple tasks or is a fundamental design flaw
 
-Do NOT submit CRs for:
-- Implementation challenges you can solve yourself
-- Missing details (ask in progress.md instead)
+NEVER submit a CR for:
+- Implementation challenges (solve them yourself)
+- Missing details (document assumptions in progress.md)
 - Code style or tooling issues (fix them directly)
-- Common problems like module systems (check existing code for patterns)
+- Module system issues (check existing code for patterns)
+- Architecture questions (read ARCHITECTURE.md first)
+- Unclear design (make reasonable assumptions, document them)
+
+ONLY submit a CR if ALL of these are true:
+- The problem makes the task **impossible** to complete (not just hard)
+- The problem will affect **multiple other tasks** (not just this one)
+- The problem is a **fundamental design flaw** (not a missing detail)
+- You've already tried solving it yourself and failed
 
 If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {
   "id": "cr-{timestamp}",
   "from": "{{AGENT_ID}}",
-  "fromLevel": "L4",
-  "toLevel": "L3 or L2",
-  "targetFile": "design.md or ARCHITECTURE.md",
-  "reason": "why the change is needed",
-  "proposedChange": "what should change",
+  "reason": "Specific problem that blocks multiple tasks",
+  "affectedTasks": ["task-123", "task-456"],
+  "triedSolutions": ["what you already tried"],
   "status": "pending",
-  "createdAt": "<ISO timestamp>",
-  "reviewedAt": null,
-  "reviewedBy": null
+  "created": "<ISO timestamp>"
 }
-Do NOT modify upper layer files directly — only submit CRs.
+
+Remember: CRs are expensive. Solve problems yourself first.
