@@ -1,6 +1,8 @@
 {
   "type": "reactive",
   "description": "事件驱动工作循环",
+  "pollInterval": 5000,
+  "maxIdle": 10,
   "agents": {
     "tech_lead": {
       "trigger": {

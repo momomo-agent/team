@@ -277,16 +277,20 @@ class WorkflowEngine {
   }
 
   /**
-   * 执行 reactive 节点（事件驱动）
+   * 执行 reactive 节点（事件驱动 + 轮询混合）
    */
   async executeReactive(node, ctx) {
-    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Starting event-driven workflow');
+    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Starting event-driven workflow with polling');
+    
+    // 配置
+    const pollInterval = node.pollInterval || 5000; // 默认 5 秒轮询一次
+    const maxIdle = node.maxIdle || 10; // 最多空转 10 次
     
     // 初始化事件队列
     const eventQueue = [];
     const runningAgents = new Set();
     let idleCount = 0;
-    const maxIdle = 10; // 最多空转 10 次
+    let lastPollTime = 0;
     
     // 初始触发：检查所有 agents 的初始条件
     for (const [agentName, agentConfig] of Object.entries(node.agents)) {
@@ -296,10 +300,44 @@ class WorkflowEngine {
     }
     
     // 事件循环
-    while (eventQueue.length > 0 || runningAgents.size > 0) {
-      // 修复 1: CR 检查时机 - 在循环开始时检查
-      if (this.daemon.checkPendingCRs) {
-        this.daemon.checkPendingCRs();
+    while (true) {
+      const now = Date.now();
+      
+      // 轮询机制：定期重新评估所有 agent 的触发条件
+      if (now - lastPollTime >= pollInterval) {
+        lastPollTime = now;
+        ctx = this.buildContext(); // 刷新 context
+        
+        this.daemon.log('workflow', this.currentNode, '[REACTIVE] Polling: re-evaluating triggers');
+        
+        // 重新评估所有 agent 的触发条件
+        for (const [agentName, agentConfig] of Object.entries(node.agents)) {
+          // 调试：打印条件和 context
+          if (agentConfig.trigger && agentConfig.trigger.condition) {
+            const condResult = this.evaluateCondition(agentConfig.trigger.condition, ctx);
+            this.daemon.log('workflow', this.currentNode, 
+              `[DEBUG] ${agentName}: condition="${agentConfig.trigger.condition}" => ${condResult} (todo=${ctx.todoCount}, designed=${ctx.designedTasks}, review=${ctx.reviewCount})`);
+          }
+          
+          if (this.shouldTriggerAgent(agentConfig, ctx, null)) {
+            // 避免重复触发（检查是否已在队列或运行中）
+            const alreadyQueued = eventQueue.some(e => e.agent === agentName);
+            const alreadyRunning = runningAgents.has(agentName) || 
+                                   Array.from(runningAgents).some(a => a.startsWith(agentName + '-'));
+            
+            if (!alreadyQueued && !alreadyRunning) {
+              this.daemon.log('workflow', this.currentNode, `[REACTIVE] Polling triggered: ${agentName}`);
+              eventQueue.push({ type: 'trigger', agent: agentName });
+              idleCount = 0; // 有新触发，重置空转计数
+            }
+          }
+        }
+        
+        // 检查退出条件
+        if (this.shouldExitReactive(node, ctx)) {
+          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Exit condition met');
+          break;
+        }
       }
       
       // 处理队列中的事件
@@ -309,33 +347,16 @@ class WorkflowEngine {
         idleCount = 0; // 有事件处理，重置空转计数
       }
       
-      // 刷新 context
-      ctx = this.buildContext();
-      
-      // 检查退出条件（必须满足才退出）
-      if (this.shouldExitReactive(node, ctx)) {
-        this.daemon.log('workflow', this.currentNode, '[REACTIVE] Exit condition met');
-        break;
-      }
-      
-      // 空转检测（只在没有 running agents 时计数）
+      // 空转检测（只在没有 running agents 且队列为空时计数）
       if (eventQueue.length === 0 && runningAgents.size === 0) {
         idleCount++;
         if (idleCount >= maxIdle) {
-          // 修复 1: 检查是否有 pending blocker CR，有则不退出
-          const hasBlockerCR = this.daemon.hasBlockerCR ? this.daemon.hasBlockerCR() : false;
-          if (hasBlockerCR) {
-            this.daemon.log('workflow', this.currentNode, '[REACTIVE] Has blocker CR, continue waiting...');
-            idleCount = 0; // 重置计数，继续等待
-          } else {
-            // 空转达到阈值，强制退出
-            this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
-            break;
-          }
+          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
+          break;
         }
       }
       
-      // 等待一小段时间再检查
+      // 等待一小段时间再检查（避免 CPU 空转）
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
@@ -347,11 +368,46 @@ class WorkflowEngine {
   }
 
   /**
-   * 执行 wait 节点
+   * 执行 wait 节点（轮询模式）
    */
   async executeWait(node, ctx) {
-    this.daemon.log('workflow', this.currentNode, `[WAIT] ${node.trigger || 'event'}`);
-    // 实际实现可以监听事件
+    const pollInterval = node.pollInterval || 10000; // 默认 10 秒轮询一次
+    const maxWait = node.maxWait || 3600000; // 默认最多等待 1 小时
+    
+    this.daemon.log('workflow', this.currentNode, `[WAIT] Polling for: ${node.trigger || 'condition'}`);
+    
+    const startTime = Date.now();
+    
+    while (true) {
+      // 刷新 context
+      ctx = this.buildContext();
+      
+      // 检查触发条件
+      if (node.condition && this.evaluateCondition(node.condition, ctx)) {
+        this.daemon.log('workflow', this.currentNode, '[WAIT] Condition met, continuing...');
+        break;
+      }
+      
+      // 检查是否有新任务（通用触发条件）
+      if (node.trigger === 'new_task' && ctx.todoCount > 0) {
+        this.daemon.log('workflow', this.currentNode, '[WAIT] New task detected, continuing...');
+        break;
+      }
+      
+      // 超时检查
+      if (Date.now() - startTime > maxWait) {
+        this.daemon.log('workflow', this.currentNode, '[WAIT] Max wait time reached, exiting...');
+        return; // 超时退出，不继续执行
+      }
+      
+      // 等待后再检查
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
+    }
+    
+    // 条件满足，继续执行 next 节点
+    if (node.next) {
+      await this.executeNode(node.next);
+    }
   }
 
   /**
@@ -381,9 +437,12 @@ class WorkflowEngine {
 
       // JS 表达式
       try {
-        return new Function('ctx', 'Math', `return ${condition}`)(ctx, Math);
+        // 将 ctx 的属性解构到作用域中，这样可以直接用 todoCount 而不是 ctx.todoCount
+        const fn = new Function(...Object.keys(ctx), 'Math', `return ${condition}`);
+        return fn(...Object.values(ctx), Math);
       } catch (e) {
         // 条件评估失败，静默返回 false（避免日志爆炸）
+        this.daemon.log('error', 'evaluateCondition', `Failed to evaluate: ${condition}, error: ${e.message}`);
         return false;
       }
     }
@@ -404,7 +463,12 @@ class WorkflowEngine {
     
     // 基于条件触发
     if (agentConfig.trigger.condition) {
-      return this.evaluateCondition(agentConfig.trigger.condition, ctx);
+      const result = this.evaluateCondition(agentConfig.trigger.condition, ctx);
+      // 调试日志
+      if (result) {
+        this.daemon.log('workflow', this.currentNode, `[TRIGGER] Condition met: ${agentConfig.trigger.condition}`);
+      }
+      return result;
     }
     
     return false;
