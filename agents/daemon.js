@@ -32,6 +32,7 @@ class TeamDaemon {
     this.workLoopCount = 0;
     this.perfMonitorInterval = null;
     this.techLeadFailCount = 0; // 修复 4: tech_lead 失败计数
+    this.architectFailCount = 0; // 修复 5: architect 失败计数
   }
 
   // --- Config Loading ---
@@ -144,6 +145,10 @@ class TeamDaemon {
           if (baseType === 'tech_lead') {
             self.techLeadFailCount = 0;
           }
+          // 修复 5: architect 成功后重置计数
+          if (baseType === 'architect') {
+            self.architectFailCount = 0;
+          }
 
           // Auto git commit after developer or tester completes (from config)
           var config = self.loadWorkflowConfig();
@@ -166,6 +171,18 @@ class TeamDaemon {
               self.log('error', 'tech_lead', 'Failed 3 times, creating minimal design.md template');
               self.createMinimalDesign();
               self.techLeadFailCount = 0;
+              resolve(true);
+              return;
+            }
+          }
+
+          // 修复 5: architect 连续失败 3 次后创建最小化 ARCHITECTURE.md
+          if (baseType === 'architect') {
+            self.architectFailCount++;
+            if (self.architectFailCount >= 3) {
+              self.log('error', 'architect', 'Failed 3 times, creating minimal ARCHITECTURE.md template');
+              self.createMinimalArchitecture();
+              self.architectFailCount = 0;
               resolve(true);
               return;
             }
@@ -453,6 +470,22 @@ class TeamDaemon {
       this.log('info', 'tech_lead', 'Created minimal design.md template at ' + designPath);
     } catch (err) {
       this.log('error', 'tech_lead', 'Failed to create design.md: ' + err.message);
+    }
+  }
+
+  // 修复 5: 创建最小化 ARCHITECTURE.md 模板
+  createMinimalArchitecture() {
+    var archPath = path.join(this.projectDir, 'ARCHITECTURE.md');
+    var template = '# Architecture\n\n' +
+      '## System Overview\n\n' +
+      '## Components\n\n' +
+      '## Data Flow\n\n';
+
+    try {
+      fs.writeFileSync(archPath, template);
+      this.log('info', 'architect', 'Created minimal ARCHITECTURE.md template at ' + archPath);
+    } catch (err) {
+      this.log('error', 'architect', 'Failed to create ARCHITECTURE.md: ' + err.message);
     }
   }
 
