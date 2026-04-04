@@ -56,6 +56,12 @@ ONLY submit a CR if ALL of these are true:
 - The problem affects **multiple tasks or milestones** (not just this one)
 - The problem is in **design or requirements**, not implementation
 - You've already tried working around it and failed
+- **You've checked .team/change-requests/ and no similar CR exists**
+
+Before submitting a CR:
+1. List all .json files in .team/change-requests/
+2. Read each pending CR to see if it describes the same problem
+3. If a similar CR exists, reference it in your test-result.md instead of creating a new one
 
 If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {

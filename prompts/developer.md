@@ -47,6 +47,12 @@ ONLY submit a CR if ALL of these are true:
 - The problem will affect **multiple other tasks** (not just this one)
 - The problem is a **fundamental design flaw** (not a missing detail)
 - You've already tried solving it yourself and failed
+- **You've checked .team/change-requests/ and no similar CR exists**
+
+Before submitting a CR:
+1. List all .json files in .team/change-requests/
+2. Read each pending CR to see if it describes the same problem
+3. If a similar CR exists, reference it in your progress.md instead of creating a new one
 
 If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {
