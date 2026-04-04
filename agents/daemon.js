@@ -127,6 +127,11 @@ class TeamDaemon {
       self.log('agent_start', agentType, taskDesc[baseType] || agentType);
       self.updateAgentStatus(agentType, 'running', taskDesc[baseType] || agentType);
 
+      // 修复 6: PM 运行前备份 kanban
+      if (baseType === 'pm') {
+        self.backupKanban();
+      }
+
       var proc = spawn('node', [RUNNER, agentType, self.projectDir], {
         stdio: ['ignore', 'inherit', 'inherit'] // no stdin (nohup-compatible)
       });
@@ -202,6 +207,12 @@ class TeamDaemon {
           } else {
             self.updateAgentStatus(agentType, 'error', null, retryCount);
             self.log('error', agentType, 'failed (code=' + code + ') after retry, marking as error');
+            
+            // 修复 6: PM 失败后恢复 kanban
+            if (baseType === 'pm') {
+              self.restoreKanban();
+            }
+            
             resolve(false);
           }
         }
@@ -486,6 +497,32 @@ class TeamDaemon {
       this.log('info', 'architect', 'Created minimal ARCHITECTURE.md template at ' + archPath);
     } catch (err) {
       this.log('error', 'architect', 'Failed to create ARCHITECTURE.md: ' + err.message);
+    }
+  }
+
+  // 修复 6: PM 崩溃时回退 kanban
+  backupKanban() {
+    var kanbanPath = path.join(this.projectDir, '.team/kanban.json');
+    var backupPath = path.join(this.projectDir, '.team/kanban.backup.json');
+    try {
+      if (fs.existsSync(kanbanPath)) {
+        fs.copyFileSync(kanbanPath, backupPath);
+      }
+    } catch (err) {
+      this.log('error', 'pm', 'Failed to backup kanban: ' + err.message);
+    }
+  }
+
+  restoreKanban() {
+    var kanbanPath = path.join(this.projectDir, '.team/kanban.json');
+    var backupPath = path.join(this.projectDir, '.team/kanban.backup.json');
+    try {
+      if (fs.existsSync(backupPath)) {
+        fs.copyFileSync(backupPath, kanbanPath);
+        this.log('info', 'pm', 'Restored kanban from backup');
+      }
+    } catch (err) {
+      this.log('error', 'pm', 'Failed to restore kanban: ' + err.message);
     }
   }
 
