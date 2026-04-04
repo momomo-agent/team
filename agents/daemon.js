@@ -1146,8 +1146,14 @@ process.on('unhandledRejection', function(err) {
   // Don't exit — keep running
 });
 
-// Graceful shutdown
-process.on('SIGINT', function() { daemon.stop(); process.exit(0); });
-process.on('SIGTERM', function() { daemon.stop(); process.exit(0); });
+// Export for testing
+module.exports = TeamDaemon;
 
-daemon.start();
+// Only start if run directly
+if (require.main === module) {
+  // Graceful shutdown
+  process.on('SIGINT', function() { daemon.stop(); process.exit(0); });
+  process.on('SIGTERM', function() { daemon.stop(); process.exit(0); });
+
+  daemon.start();
+}
