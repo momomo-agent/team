@@ -191,6 +191,9 @@ class TeamDaemon {
               resolve(true);
               return;
             }
+            
+            // 修复 7: architect 失败后恢复 CR 为 pending
+            self.restorePendingCRs();
           }
 
           // Task 4: Error Recovery — retry once on failure
@@ -523,6 +526,30 @@ class TeamDaemon {
       }
     } catch (err) {
       this.log('error', 'pm', 'Failed to restore kanban: ' + err.message);
+    }
+  }
+
+  // 修复 7: architect 失败后恢复 CR 为 pending
+  restorePendingCRs() {
+    var crDir = path.join(this.projectDir, '.team/change-requests');
+    if (!fs.existsSync(crDir)) return;
+
+    try {
+      var files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); });
+      for (var i = 0; i < files.length; i++) {
+        var crPath = path.join(crDir, files[i]);
+        var cr = JSON.parse(fs.readFileSync(crPath, 'utf8'));
+        
+        // 恢复被标记为 "Converted to architect task" 的 CR
+        if (cr.status === 'resolved' && cr.resolution === 'Converted to architect task') {
+          cr.status = 'pending';
+          delete cr.resolution;
+          fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
+          this.log('info', 'architect', 'Restored CR ' + cr.id + ' to pending');
+        }
+      }
+    } catch (err) {
+      this.log('error', 'architect', 'Failed to restore CRs: ' + err.message);
     }
   }
 
