@@ -312,11 +312,15 @@ class TeamDaemon {
       } catch {}
     }
 
-    // Trigger architect if architecture issues detected
+    // 修复 5: 真正触发 architect（不只是通知）
     if (architectureIssues.length > 0) {
       this.log('agent_start', 'architect', 'Triggering architect for ' + architectureIssues.length + ' architecture issue(s)');
       this.notify('Architecture Issues Detected', architectureIssues.length + ' issue(s) need architect review', 'architecture_issue');
-      // Queue architect run (will be picked up in next work loop)
+      // 立即触发 architect
+      this.runAgent('architect').catch(function(err) {
+        this.log('error', 'architect', 'Failed to run architect: ' + err.message);
+      }.bind(this));
+    }
       var self = this;
       setTimeout(function() {
         self.runAgent('architect');

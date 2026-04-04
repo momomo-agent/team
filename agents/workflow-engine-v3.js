@@ -297,7 +297,7 @@ class WorkflowEngine {
     
     // 事件循环
     while (eventQueue.length > 0 || runningAgents.size > 0) {
-      // 检查 pending CRs（每次循环开始时）
+      // 修复 1: CR 检查时机 - 在循环开始时检查
       if (this.daemon.checkPendingCRs) {
         this.daemon.checkPendingCRs();
       }

@@ -1,4 +1,5 @@
 {
+  "version": "3.1",
   "docs": {
     "root": ".team/docs",
     "items": [
@@ -103,33 +104,11 @@
     }
   },
   "workflow": {
-    "startup": [
-      {
-        "agents": ["architect"],
-        "parallel": false,
-        "condition": "no-architecture",
-        "description": "L2: 架构设计（如果没有架构文档）"
-      },
-      {
-        "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
-        "parallel": true,
-        "description": "L0-L2: 初始评估（并行评估所有文档）"
-      },
-      {
-        "agents": ["pm"],
-        "parallel": false,
-        "description": "L3: PM 规划里程碑"
-      }
-    ],
-    "loop": {
-      "parallel": ["tech_lead", "developer", "tester"],
-      "then": ["pm"],
-      "description": "工作循环：Tech Lead + Developer + Tester 全并行（Developer 需方案才启动）→ PM 再分配"
-    },
-    "milestoneCheck": {
-      "parallel": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
-      "then": ["pm"],
-      "description": "里程碑完成：四重检查并行 → PM 汇总 gaps → 决策下一步"
+    "entry": "startup",
+    "nodes": {
+      "startup": "nodes/startup.json",
+      "work_loop": "nodes/work-reactive.json",
+      "quality_gate": "nodes/quality-gate.json"
     }
   },
   "git": {
