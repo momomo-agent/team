@@ -285,27 +285,33 @@ class WorkflowEngine {
     const runningAgents = new Set();
     const self = this;
     let exitRequested = false;
+    let isProcessing = false; // 修复：防止并发事件处理
     
     // 事件处理器：重新评估所有 agent 触发条件（保存引用用于清理）
     const evaluateTriggers = function() {
-      if (exitRequested) return;
+      if (exitRequested || isProcessing) return;
+      isProcessing = true;
       
-      const freshCtx = self.buildContext();
-      for (const [agentName, agentConfig] of Object.entries(node.agents)) {
-        if (self.shouldTriggerAgent(agentConfig, freshCtx, null)) {
-          const alreadyRunning = runningAgents.has(agentName) || 
-                                 Array.from(runningAgents).some(a => a.startsWith(agentName + '-'));
-          if (!alreadyRunning) {
-            self.daemon.log('workflow', self.currentNode, `[REACTIVE] Event triggered: ${agentName}`);
-            self.runReactiveAgent(agentName, agentConfig, freshCtx, runningAgents);
+      try {
+        const freshCtx = self.buildContext();
+        for (const [agentName, agentConfig] of Object.entries(node.agents)) {
+          if (self.shouldTriggerAgent(agentConfig, freshCtx, null)) {
+            const alreadyRunning = runningAgents.has(agentName) || 
+                                   Array.from(runningAgents).some(a => a.startsWith(agentName + '-'));
+            if (!alreadyRunning) {
+              self.daemon.log('workflow', self.currentNode, `[REACTIVE] Event triggered: ${agentName}`);
+              self.runReactiveAgent(agentName, agentConfig, freshCtx, runningAgents);
+            }
           }
         }
-      }
-      
-      // 检查退出条件
-      if (self.shouldExitReactive(node, freshCtx)) {
-        self.daemon.log('workflow', self.currentNode, '[REACTIVE] Exit condition met');
-        exitRequested = true;
+        
+        // 检查退出条件
+        if (self.shouldExitReactive(node, freshCtx)) {
+          self.daemon.log('workflow', self.currentNode, '[REACTIVE] Exit condition met');
+          exitRequested = true;
+        }
+      } finally {
+        isProcessing = false;
       }
     };
     
