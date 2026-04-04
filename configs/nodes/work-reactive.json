@@ -14,7 +14,7 @@
       "scalable": true,
       "max": 3,
       "trigger": {
-        "condition": "designedTasks > 0"
+        "condition": "designedTasks > 0 && todoCount > 0"
       },
       "on_complete": ["pm"]
     },

@@ -1092,13 +1092,16 @@ class TeamDaemon {
     if (this.running) return;
     
     // Check required files before starting
-    var visionPath = path.join(this.projectDir, 'VISION.md');
-    if (!fs.existsSync(visionPath)) {
-      console.error('\n❌ ERROR: VISION.md not found in project directory');
-      console.error('   Path: ' + this.projectDir);
-      console.error('\nDevTeam requires VISION.md to understand the product goals.');
-      console.error('Please create VISION.md with your product vision before starting the daemon.\n');
-      process.exit(1);
+    var requiredFiles = ['VISION.md', 'PRD.md'];
+    for (var i = 0; i < requiredFiles.length; i++) {
+      var reqFile = requiredFiles[i];
+      if (!fs.existsSync(path.join(this.projectDir, reqFile))) {
+        console.error('\n❌ ERROR: ' + reqFile + ' not found in project directory');
+        console.error('   Path: ' + this.projectDir);
+        console.error('\nDevTeam requires: ' + requiredFiles.join(', '));
+        console.error('Please create the missing files before starting.\n');
+        process.exit(1);
+      }
     }
     
     this.running = true;
