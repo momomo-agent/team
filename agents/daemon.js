@@ -31,6 +31,7 @@ class TeamDaemon {
     this.maxDevs = opts.devs || 3;
     this.workLoopCount = 0;
     this.perfMonitorInterval = null;
+    this.techLeadFailCount = 0; // 修复 4: tech_lead 失败计数
   }
 
   // --- Config Loading ---
@@ -139,6 +140,11 @@ class TeamDaemon {
           self.updateAgentStatus(agentType, 'idle', null);
           self.log('agent_complete', agentType, 'completed successfully');
 
+          // 修复 4: tech_lead 成功后重置计数
+          if (baseType === 'tech_lead') {
+            self.techLeadFailCount = 0;
+          }
+
           // Auto git commit after developer or tester completes (from config)
           var config = self.loadWorkflowConfig();
           if (config.git && config.git.commitPerTask && (baseType === 'developer' || baseType === 'tester')) {
@@ -153,6 +159,18 @@ class TeamDaemon {
 
           resolve(true);
         } else {
+          // 修复 4: tech_lead 连续失败 3 次后创建最小化 design.md
+          if (baseType === 'tech_lead') {
+            self.techLeadFailCount++;
+            if (self.techLeadFailCount >= 3) {
+              self.log('error', 'tech_lead', 'Failed 3 times, creating minimal design.md template');
+              self.createMinimalDesign();
+              self.techLeadFailCount = 0;
+              resolve(true);
+              return;
+            }
+          }
+
           // Task 4: Error Recovery — retry once on failure
           var statusPath = path.join(self.projectDir, '.team/agent-status.json');
           var all = {};
@@ -417,6 +435,25 @@ class TeamDaemon {
   getActiveMilestone() {
     var data = this.getMilestones();
     return (data.milestones || []).find(function(m) { return m.status === 'active'; }) || null;
+  }
+
+  // 修复 4: 创建最小化 design.md 模板
+  createMinimalDesign() {
+    var ms = this.getActiveMilestone();
+    if (!ms) return;
+
+    var designPath = path.join(this.projectDir, '.team/milestones', ms.id, 'design.md');
+    var template = '# ' + ms.name + ' - Technical Design\n\n' +
+      '## Architecture\n\n' +
+      '## Implementation Plan\n\n' +
+      '## Dependencies\n\n';
+
+    try {
+      fs.writeFileSync(designPath, template);
+      this.log('info', 'tech_lead', 'Created minimal design.md template at ' + designPath);
+    } catch (err) {
+      this.log('error', 'tech_lead', 'Failed to create design.md: ' + err.message);
+    }
   }
 
   getTasksWithDesign() {
