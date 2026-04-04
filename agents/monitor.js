@@ -34,6 +34,7 @@ class DevTeamMonitor {
       memorySnapshots: [],             // 内存快照
       agentStats: new Map()            // agentId -> {success, failure}
     };
+    this.alertCache = new Map();       // 修复 5: 告警去重缓存 (type+message -> timestamp)
   }
 
   start() {
@@ -208,6 +209,21 @@ class DevTeamMonitor {
 
   alert(type, message) {
     const timestamp = new Date().toISOString();
+    
+    // 修复 5: 5 分钟内相同告警只发一次
+    const alertKey = `${type}:${message}`;
+    const now = Date.now();
+    const FIVE_MINUTES = 5 * 60 * 1000;
+    
+    if (this.alertCache.has(alertKey)) {
+      const lastAlert = this.alertCache.get(alertKey);
+      if (now - lastAlert < FIVE_MINUTES) {
+        return; // 5 分钟内已发过，跳过
+      }
+    }
+    
+    this.alertCache.set(alertKey, now);
+    
     console.error(`[${timestamp}] ⚠️  ALERT [${type}] ${message}`);
     
     // 写入告警日志

@@ -322,9 +322,16 @@ class WorkflowEngine {
       if (eventQueue.length === 0 && runningAgents.size === 0) {
         idleCount++;
         if (idleCount >= maxIdle) {
-          // 空转达到阈值，强制退出
-          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
-          break;
+          // 修复 1: 检查是否有 pending blocker CR，有则不退出
+          const hasBlockerCR = this.daemon.hasBlockerCR ? this.daemon.hasBlockerCR() : false;
+          if (hasBlockerCR) {
+            this.daemon.log('workflow', this.currentNode, '[REACTIVE] Has blocker CR, continue waiting...');
+            idleCount = 0; // 重置计数，继续等待
+          } else {
+            // 空转达到阈值，强制退出
+            this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
+            break;
+          }
         }
       }
       

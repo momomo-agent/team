@@ -52,9 +52,10 @@ module.exports = {
     const kanban = ctx.kanban();
     const inProgress = (kanban.inProgress || []).length;
     const testing = (kanban.testing || []).length;
+    const blocked = (kanban.blocked || []).length; // 修复 2: 增加 blocked 任务检查
     
     // 如果还有正在进行的工作，继续循环
-    if (ctx.todoCount > 0 || ctx.reviewCount > 0 || inProgress > 0 || testing > 0) {
+    if (ctx.todoCount > 0 || ctx.reviewCount > 0 || inProgress > 0 || testing > 0 || blocked > 0) {
       return null; // 继续循环
     }
     

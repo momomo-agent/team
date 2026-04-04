@@ -338,12 +338,14 @@ class TeamDaemon {
           pendingCount++;
           
           // Check if this is an architecture issue (should trigger architect, not CR)
-          var isArchIssue = cr.reason && (
-            cr.reason.toLowerCase().includes('architecture') ||
-            cr.reason.toLowerCase().includes('架构') ||
-            cr.reason.toLowerCase().includes('missing component') ||
-            cr.reason.toLowerCase().includes('design flaw')
-          );
+          // 修复 3: 增加上下文判断 - affectedTasks ≥3 且不是 architect 发起的
+          var isArchIssue = (cr.affectedTasks && cr.affectedTasks.length >= 3 && cr.from !== 'architect') ||
+            (cr.reason && (
+              cr.reason.toLowerCase().includes('architecture') ||
+              cr.reason.toLowerCase().includes('架构') ||
+              cr.reason.toLowerCase().includes('missing component') ||
+              cr.reason.toLowerCase().includes('design flaw')
+            ));
           
           if (isArchIssue) {
             architectureIssues.push(cr);
@@ -423,6 +425,25 @@ class TeamDaemon {
         blockerCRs.map(function(cr) { return cr.id; }).join(', ');
       this.notify('Blocker CRs Detected', blockerMsg, 'blocker_cr');
     }
+  }
+
+  // 修复 1: 检查是否有 pending blocker CR
+  hasBlockerCR() {
+    var crDir = path.join(this.projectDir, '.team/change-requests');
+    if (!fs.existsSync(crDir)) return false;
+
+    var files;
+    try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return false; }
+
+    for (var i = 0; i < files.length; i++) {
+      try {
+        var cr = JSON.parse(fs.readFileSync(path.join(crDir, files[i]), 'utf8'));
+        if (cr.status === 'pending' && cr.isBlocker) {
+          return true;
+        }
+      } catch {}
+    }
+    return false;
   }
 
   // --- Task 4: Stuck task detection ---
