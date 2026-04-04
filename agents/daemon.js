@@ -361,7 +361,40 @@ class TeamDaemon {
           // Task 2: Detect blocker CRs (affecting multiple tasks)
           if (cr.isBlocker || (cr.affectedTasks && cr.affectedTasks.length >= 2)) {
             blockerCRs.push(cr);
-            this.log('error', cr.id, 'BLOCKER CR: affects ' + (cr.affectedTasks ? cr.affectedTasks.length : 0) + ' tasks');
+            
+            // 修复 8: 超过 48 小时自动降级为普通 CR
+            var created = new Date(cr.created).getTime();
+            var now = Date.now();
+            var elapsed = now - created;
+            var FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
+            
+            if (elapsed > FORTY_EIGHT_HOURS) {
+              this.log('error', cr.id, 'BLOCKER CR timeout (>48h), downgrading to normal CR');
+              cr.isBlocker = false;
+              fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
+              
+              // Unblock affected tasks
+              var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
+              var tm = new TaskManager(this.projectDir);
+              if (cr.affectedTasks) {
+                for (var j = 0; j < cr.affectedTasks.length; j++) {
+                  var taskId = cr.affectedTasks[j];
+                  try {
+                    var task = tm.getTask(taskId);
+                    if (task && task.status === 'blocked') {
+                      var newBlockedBy = (task.blockedBy || []).filter(function(id) { return id !== cr.id; });
+                      if (newBlockedBy.length === 0) {
+                        tm.updateTask(taskId, { status: 'todo', blockedBy: newBlockedBy });
+                      } else {
+                        tm.updateTask(taskId, { blockedBy: newBlockedBy });
+                      }
+                    }
+                  } catch {}
+                }
+              }
+            } else {
+              this.log('error', cr.id, 'BLOCKER CR: affects ' + (cr.affectedTasks ? cr.affectedTasks.length : 0) + ' tasks');
+            }
           }
         }
       } catch {}
