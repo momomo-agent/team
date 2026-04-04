@@ -277,93 +277,98 @@ class WorkflowEngine {
   }
 
   /**
-   * 执行 reactive 节点（事件驱动 + 轮询混合）
+   * 执行 reactive 节点（事件驱动 + 轮询看护）
    */
   async executeReactive(node, ctx) {
-    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Starting event-driven workflow with polling');
+    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Starting event-driven workflow');
     
-    // 配置
-    const pollInterval = node.pollInterval || 5000; // 默认 5 秒轮询一次
-    const maxIdle = node.maxIdle || 10; // 最多空转 10 次
-    
-    // 初始化事件队列
-    const eventQueue = [];
     const runningAgents = new Set();
-    let idleCount = 0;
-    let lastPollTime = 0;
+    const self = this;
+    let exitRequested = false;
     
-    // 初始触发：检查所有 agents 的初始条件
-    for (const [agentName, agentConfig] of Object.entries(node.agents)) {
-      if (this.shouldTriggerAgent(agentConfig, ctx, null)) {
-        eventQueue.push({ type: 'trigger', agent: agentName });
+    // 事件处理器：重新评估所有 agent 触发条件
+    const evaluateTriggers = () => {
+      if (exitRequested) return;
+      
+      const freshCtx = self.buildContext();
+      for (const [agentName, agentConfig] of Object.entries(node.agents)) {
+        if (self.shouldTriggerAgent(agentConfig, freshCtx, null)) {
+          const alreadyRunning = runningAgents.has(agentName) || 
+                                 Array.from(runningAgents).some(a => a.startsWith(agentName + '-'));
+          if (!alreadyRunning) {
+            self.daemon.log('workflow', self.currentNode, `[REACTIVE] Event triggered: ${agentName}`);
+            self.runReactiveAgent(agentName, agentConfig, freshCtx, runningAgents);
+          }
+        }
+      }
+      
+      // 检查退出条件
+      if (self.shouldExitReactive(node, freshCtx)) {
+        self.daemon.log('workflow', self.currentNode, '[REACTIVE] Exit condition met');
+        exitRequested = true;
+      }
+    };
+    
+    // 监听事件
+    this.daemon.on('kanban_updated', evaluateTriggers);
+    this.daemon.on('agent_complete', evaluateTriggers);
+    this.daemon.on('cr_changed', evaluateTriggers);
+    
+    // 初始触发
+    evaluateTriggers();
+    
+    // 轮询看护（60秒检查超时/卡死）
+    const watchdogInterval = setInterval(() => {
+      if (exitRequested) return;
+      
+      self.daemon.log('workflow', self.currentNode, '[REACTIVE] Watchdog: checking for timeouts');
+      
+      // 检查是否有 agent 超时（这里简化处理，实际超时由 daemon 的 AGENT_TIMEOUT 处理）
+      if (runningAgents.size === 0) {
+        evaluateTriggers(); // 没有运行中的 agent，重新评估
+      }
+    }, 60000);
+    
+    // 等待退出条件
+    while (!exitRequested) {
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      // 如果没有运行中的 agent 且退出条件满足，退出
+      if (runningAgents.size === 0 && this.shouldExitReactive(node, this.buildContext())) {
+        exitRequested = true;
       }
     }
     
-    // 事件循环
-    while (true) {
-      const now = Date.now();
-      
-      // 轮询机制：定期重新评估所有 agent 的触发条件
-      if (now - lastPollTime >= pollInterval) {
-        lastPollTime = now;
-        ctx = this.buildContext(); // 刷新 context
-        
-        this.daemon.log('workflow', this.currentNode, '[REACTIVE] Polling: re-evaluating triggers');
-        
-        // 重新评估所有 agent 的触发条件
-        for (const [agentName, agentConfig] of Object.entries(node.agents)) {
-          // 调试：打印条件和 context
-          if (agentConfig.trigger && agentConfig.trigger.condition) {
-            const condResult = this.evaluateCondition(agentConfig.trigger.condition, ctx);
-            this.daemon.log('workflow', this.currentNode, 
-              `[DEBUG] ${agentName}: condition="${agentConfig.trigger.condition}" => ${condResult} (todo=${ctx.todoCount}, designed=${ctx.designedTasks}, review=${ctx.reviewCount})`);
-          }
-          
-          if (this.shouldTriggerAgent(agentConfig, ctx, null)) {
-            // 避免重复触发（检查是否已在队列或运行中）
-            const alreadyQueued = eventQueue.some(e => e.agent === agentName);
-            const alreadyRunning = runningAgents.has(agentName) || 
-                                   Array.from(runningAgents).some(a => a.startsWith(agentName + '-'));
-            
-            if (!alreadyQueued && !alreadyRunning) {
-              this.daemon.log('workflow', this.currentNode, `[REACTIVE] Polling triggered: ${agentName}`);
-              eventQueue.push({ type: 'trigger', agent: agentName });
-              idleCount = 0; // 有新触发，重置空转计数
-            }
-          }
-        }
-        
-        // 检查退出条件
-        if (this.shouldExitReactive(node, ctx)) {
-          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Exit condition met');
-          break;
-        }
-      }
-      
-      // 处理队列中的事件
-      while (eventQueue.length > 0) {
-        const event = eventQueue.shift();
-        await this.handleReactiveEvent(event, node, ctx, runningAgents, eventQueue);
-        idleCount = 0; // 有事件处理，重置空转计数
-      }
-      
-      // 空转检测（只在没有 running agents 且队列为空时计数）
-      if (eventQueue.length === 0 && runningAgents.size === 0) {
-        idleCount++;
-        if (idleCount >= maxIdle) {
-          this.daemon.log('workflow', this.currentNode, '[REACTIVE] Idle limit reached, exiting...');
-          break;
-        }
-      }
-      
-      // 等待一小段时间再检查（避免 CPU 空转）
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    // 清理
+    clearInterval(watchdogInterval);
+    this.daemon.off('kanban_updated', evaluateTriggers);
+    this.daemon.off('agent_complete', evaluateTriggers);
+    this.daemon.off('cr_changed', evaluateTriggers);
+    
+    // 等待所有 agent 完成
+    while (runningAgents.size > 0) {
+      this.daemon.log('workflow', this.currentNode, `[REACTIVE] Waiting for ${runningAgents.size} agents to complete`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
     // 执行退出逻辑
-    const exitTarget = this.getReactiveExitTarget(node, ctx);
+    const exitTarget = this.getReactiveExitTarget(node, this.buildContext());
     if (exitTarget) {
       await this.executeNode(exitTarget);
+    }
+  }
+  
+  /**
+   * 运行 reactive agent（异步，不阻塞）
+   */
+  async runReactiveAgent(agentName, agentConfig, ctx, runningAgents) {
+    const agentId = agentName + '-' + Date.now();
+    runningAgents.add(agentId);
+    
+    try {
+      await this.daemon.runAgent(agentName);
+    } finally {
+      runningAgents.delete(agentId);
     }
   }
 
