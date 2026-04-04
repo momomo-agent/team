@@ -28,7 +28,18 @@ Rules:
 - Move to 'review' when complete
 - Do NOT modify any .team/ files except task.json and progress.md for your task
 
-CHANGE REQUEST (CR): If during implementation you discover that the technical design or architecture cannot satisfy the requirements, submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+CHANGE REQUEST (CR): Only submit a CR if you encounter a **fundamental blocker** that makes the task impossible to complete:
+- The technical design contradicts the requirements (not just unclear)
+- The architecture is missing critical components
+- There are conflicting specifications across documents
+
+Do NOT submit CRs for:
+- Implementation challenges you can solve yourself
+- Missing details (ask in progress.md instead)
+- Code style or tooling issues (fix them directly)
+- Common problems like module systems (check existing code for patterns)
+
+If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {
   "id": "cr-{timestamp}",
   "from": "{{AGENT_ID}}",

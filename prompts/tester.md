@@ -38,7 +38,18 @@ Rules:
 - Document any issues found in test-result.md
 - Do NOT modify source code — only test code
 
-CHANGE REQUEST (CR): If during testing you discover that the design or requirements have contradictions or untestable criteria, submit a Change Request by writing a JSON file to .team/change-requests/cr-{timestamp}.json with this EXACT schema:
+CHANGE REQUEST (CR): Only submit a CR if you encounter a **fundamental blocker** that makes testing impossible:
+- Requirements are contradictory (not just unclear)
+- Acceptance criteria are logically impossible
+- Design violates stated requirements
+
+Do NOT submit CRs for:
+- Implementation bugs (report in test-result.md, move task back to todo)
+- Missing edge case handling (report as test failure)
+- Code quality issues (report in test-result.md)
+- Common problems you can work around
+
+If you must submit a CR, write to .team/change-requests/cr-{timestamp}.json:
 {
   "id": "cr-{timestamp}",
   "from": "{{AGENT_ID}}",

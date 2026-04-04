@@ -30,6 +30,7 @@ class TeamDaemon {
     this.busy = false;
     this.maxDevs = opts.devs || 3;
     this.workLoopCount = 0;
+    this.perfMonitorInterval = null;
   }
 
   // --- Config Loading ---
@@ -74,6 +75,17 @@ class TeamDaemon {
       agent: agent || null,
       details: details || null
     };
+
+    // Task 4: Add performance metrics
+    if (event === 'agent_start' || event === 'agent_complete' || event === 'milestone_complete') {
+      var mem = process.memoryUsage();
+      entry.performance = {
+        memoryMB: Math.round(mem.heapUsed / 1024 / 1024),
+        memoryTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+        cpuUser: process.cpuUsage().user / 1000000,
+        cpuSystem: process.cpuUsage().system / 1000000
+      };
+    }
 
     // Console output
     console.log('[' + ts() + '] [' + event + '] ' + (agent || '') + ' ' + (details || ''));
@@ -262,6 +274,7 @@ class TeamDaemon {
     var files;
     try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return; }
 
+    var blockerCRs = [];
     for (var i = 0; i < files.length; i++) {
       var f = files[i];
       try {
@@ -269,8 +282,21 @@ class TeamDaemon {
         if (cr.status === 'pending') {
           this.log('cr_created', cr.from || 'unknown', 'CR ' + (cr.id || f) + ': ' + (cr.reason || 'no reason'));
           this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'), 'cr_created');
+          
+          // Task 2: Detect blocker CRs (affecting multiple tasks)
+          if (cr.isBlocker || (cr.affectedTasks && cr.affectedTasks.length >= 2)) {
+            blockerCRs.push(cr);
+            this.log('error', cr.id, 'BLOCKER CR: affects ' + (cr.affectedTasks ? cr.affectedTasks.length : 0) + ' tasks');
+          }
         }
       } catch {}
+    }
+
+    // Task 2: Notify about blocker CRs
+    if (blockerCRs.length > 0) {
+      var blockerMsg = blockerCRs.length + ' blocker CR(s) detected, ' + 
+        blockerCRs.map(function(cr) { return cr.id; }).join(', ');
+      this.notify('Blocker CRs Detected', blockerMsg, 'blocker_cr');
     }
   }
 
@@ -386,7 +412,8 @@ class TeamDaemon {
     if (baseType === 'tester') {
       var reviewCount = this.getReviewCount();
       if (reviewCount <= 0) return [];
-      var testCount = Math.min(Math.ceil(reviewCount / 2), 2);
+      // Task 3: Increased tester count from 2 to 4
+      var testCount = Math.min(Math.ceil(reviewCount / 2), 4);
       var testInstances = [];
       for (var j = 1; j <= testCount; j++) {
         testInstances.push(baseType + '-' + j);
