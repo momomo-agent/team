@@ -33,6 +33,42 @@ class TeamDaemon {
     this.perfMonitorInterval = null;
     this.techLeadFailCount = 0; // 修复 4: tech_lead 失败计数
     this.architectFailCount = 0; // 修复 5: architect 失败计数
+    
+    // Event system
+    this.eventHandlers = {}; // { eventName: [handler1, handler2, ...] }
+  }
+
+  // --- Event System ---
+  
+  emit(event, data) {
+    const handlers = this.eventHandlers[event] || [];
+    handlers.forEach(handler => {
+      try {
+        handler(data);
+      } catch (e) {
+        this.log('error', 'event', `Handler error for ${event}: ${e.message}`);
+      }
+    });
+  }
+
+  on(event, handler) {
+    if (!this.eventHandlers[event]) {
+      this.eventHandlers[event] = [];
+    }
+    this.eventHandlers[event].push(handler);
+  }
+
+  once(event, handler) {
+    const wrapper = (data) => {
+      handler(data);
+      this.off(event, wrapper);
+    };
+    this.on(event, wrapper);
+  }
+
+  off(event, handler) {
+    if (!this.eventHandlers[event]) return;
+    this.eventHandlers[event] = this.eventHandlers[event].filter(h => h !== handler);
   }
 
   // --- Config Loading ---
@@ -155,6 +191,17 @@ class TeamDaemon {
             self.architectFailCount = 0;
           }
 
+          // PM 完成后发送 kanban_updated 事件
+          if (baseType === 'pm') {
+            var kanbanPath = path.join(self.projectDir, '.team/kanban.json');
+            try {
+              var kanban = JSON.parse(fs.readFileSync(kanbanPath, 'utf8'));
+              self.emit('kanban_updated', kanban);
+            } catch (e) {
+              self.log('error', 'pm', 'Failed to read kanban: ' + e.message);
+            }
+          }
+
           // Auto git commit after developer or tester completes (from config)
           var config = self.loadWorkflowConfig();
           if (config.git && config.git.commitPerTask && (baseType === 'developer' || baseType === 'tester')) {
@@ -166,6 +213,9 @@ class TeamDaemon {
               });
             } catch {}
           }
+
+          // Emit agent_complete event
+          self.emit('agent_complete', { agent: agentType, success: true });
 
           resolve(true);
         } else {
@@ -215,6 +265,9 @@ class TeamDaemon {
             if (baseType === 'pm') {
               self.restoreKanban();
             }
+            
+            // Emit agent_complete event (failure)
+            self.emit('agent_complete', { agent: agentType, success: false });
             
             resolve(false);
           }
@@ -424,6 +477,16 @@ class TeamDaemon {
       var blockerMsg = blockerCRs.length + ' blocker CR(s) detected, ' + 
         blockerCRs.map(function(cr) { return cr.id; }).join(', ');
       this.notify('Blocker CRs Detected', blockerMsg, 'blocker_cr');
+    }
+
+    // Emit cr_changed event if there are pending CRs or architecture issues
+    if (pendingCount > 0 || architectureIssues.length > 0) {
+      this.emit('cr_changed', { 
+        pendingCount: pendingCount, 
+        totalCount: totalCount,
+        blockerCount: blockerCRs.length,
+        architectureIssues: architectureIssues.length
+      });
     }
   }
 
