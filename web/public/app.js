@@ -86,7 +86,7 @@ function initializeTabs(tabs) {
     var tabEl = document.createElement('div');
     tabEl.className = 'folder-tab' + (i === 0 ? ' active' : '');
     tabEl.dataset.tab = tab.id;
-    tabEl.innerHTML = tab.title + ' <span class="tab-match" id="tab-match-' + tab.id + '">—</span>';
+    tabEl.innerHTML = (tab.name || tab.title || tab.id) + ' <span class="tab-match" id="tab-match-' + tab.id + '">—</span>';
     tabBar.appendChild(tabEl);
     
     var pane = document.createElement('div');
@@ -216,6 +216,15 @@ async function refresh() {
     // v2.0: 兼容更旧配置
     else if (teamConfig && teamConfig.docs && teamConfig.docs.items) {
       leftTabs = teamConfig.docs.items.filter(function(d) { return d.showInUI; });
+    }
+
+    // fallback: 右侧 tabs 默认值
+    if (rightTabs.length === 0) {
+      rightTabs = [
+        { id: 'pipeline', name: 'Pipeline', component: 'PipelineView' },
+        { id: 'kanban', name: 'Kanban', component: 'KanbanView' },
+        { id: 'milestones', name: 'Milestones', component: 'MilestonesView' }
+      ];
     }
     
     // 加载基础数据

@@ -9,7 +9,7 @@
         "file": "vision.md",
         "monitor": {
           "agent": "vision_monitor",
-          "output": ".team/monitor/vision.json"
+          "output": ".team/gaps/vision.json"
         },
         "showInUI": true
       },
@@ -19,7 +19,7 @@
         "file": "prd.md",
         "monitor": {
           "agent": "prd_monitor",
-          "output": ".team/monitor/prd.json"
+          "output": ".team/gaps/prd.json"
         },
         "showInUI": true
       },
@@ -29,7 +29,7 @@
         "file": "dbb.md",
         "monitor": {
           "agent": "dbb_monitor",
-          "output": ".team/monitor/dbb.json"
+          "output": ".team/gaps/dbb.json"
         },
         "showInUI": true
       },
@@ -39,7 +39,7 @@
         "file": "architecture.md",
         "monitor": {
           "agent": "arch_monitor",
-          "output": ".team/monitor/arch.json"
+          "output": ".team/gaps/arch.json"
         },
         "showInUI": true
       }
@@ -55,32 +55,32 @@
     "vision_monitor": {
       "prompt": { "type": "file", "path": "prompts/vision_monitor.md" },
       "frequency": "milestone",
-      "write": [".team/monitor/vision.json", ".team/milestones/*/review/"],
+      "write": [".team/gaps/vision.json", ".team/milestones/*/review/"],
       "read": [".team/docs/vision.md", "src/", ".team/docs/architecture.md"]
     },
     "prd_monitor": {
       "prompt": { "type": "file", "path": "prompts/prd_monitor.md" },
       "frequency": "milestone",
-      "write": [".team/monitor/prd.json", ".team/milestones/*/review/"],
+      "write": [".team/gaps/prd.json", ".team/milestones/*/review/"],
       "read": [".team/docs/prd.md", ".team/docs/dbb.md", "src/", ".team/docs/architecture.md"]
     },
     "dbb_monitor": {
       "prompt": { "type": "file", "path": "prompts/dbb_monitor.md" },
       "frequency": "milestone",
-      "write": [".team/monitor/dbb.json", ".team/milestones/*/review/"],
+      "write": [".team/gaps/dbb.json", ".team/milestones/*/review/"],
       "read": [".team/docs/dbb.md", ".team/milestones/*/dbb.md", "src/"]
     },
     "arch_monitor": {
       "prompt": { "type": "file", "path": "prompts/arch_monitor.md" },
       "frequency": "milestone",
-      "write": [".team/monitor/arch.json", ".team/milestones/*/review/"],
+      "write": [".team/gaps/arch.json", ".team/milestones/*/review/"],
       "read": [".team/docs/architecture.md", "src/"]
     },
     "pm": {
       "prompt": { "type": "file", "path": "prompts/pm.md" },
       "frequency": "per-loop",
       "write": [".team/milestones/milestones.json", ".team/milestones/*/overview.md", ".team/kanban.json", ".team/tasks/*/task.json", ".team/change-requests/"],
-      "read": [".team/docs/architecture.md", ".team/monitor/", ".team/milestones/", ".team/tasks/"]
+      "read": [".team/docs/architecture.md", ".team/gaps/", ".team/milestones/", ".team/tasks/"]
     },
     "tech_lead": {
       "prompt": { "type": "file", "path": "prompts/tech_lead.md" },
@@ -99,7 +99,7 @@
       "prompt": { "type": "file", "path": "prompts/tester.md" },
       "frequency": "per-loop",
       "scalable": true,
-      "write": ["test/", ".team/tasks/*/test-result.md", ".team/tasks/*/task.json", ".team/monitor/test-coverage.json", ".team/change-requests/"],
+      "write": ["test/", ".team/tasks/*/test-result.md", ".team/tasks/*/task.json", ".team/gaps/test-coverage.json", ".team/change-requests/"],
       "read": [".team/milestones/*/dbb.md", ".team/tasks/*/design.md", ".team/kanban.json"]
     }
   },
