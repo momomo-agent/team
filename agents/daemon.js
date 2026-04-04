@@ -778,6 +778,17 @@ class TeamDaemon {
     var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     fs.writeFileSync(pidPath, process.pid.toString());
 
+    // Start performance monitoring (every 5 minutes)
+    this.perfMonitorInterval = setInterval(() => {
+      const mem = process.memoryUsage();
+      this.log('perf', 'daemon', JSON.stringify({
+        rss: Math.round(mem.rss / 1024 / 1024) + 'MB',
+        heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + 'MB',
+        heapTotal: Math.round(mem.heapTotal / 1024 / 1024) + 'MB',
+        uptime: Math.round(process.uptime()) + 's'
+      }));
+    }, 5 * 60 * 1000);
+
     // Immediate start
     this.run();
 
