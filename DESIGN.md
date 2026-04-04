@@ -218,6 +218,7 @@ team agents                       # Agent 实时状态
 
 # 监控
 team gaps [--level L0|L1|L2|L3]   # 查看 gaps
+
 team check <milestone-id>         # 手动触发三重检查
 
 # 变更请求
@@ -229,3 +230,19 @@ team cr reject <id>               # 拒绝
 # Web
 team web [--port 3000]            # 启动 Dashboard
 ```
+
+## 产品路线图
+
+### Phase 1 — 硬编码开发团队（已完成）
+- 固定角色：architect / pm / tech_lead / developer / tester
+- 固定串行状态机流程
+- 代表版本：v2.0
+
+### Phase 2 — 可配置通用多 Agent 流程团队（当前）
+- 角色、流程、节点全部配置化（dev-team.json + nodes/*.json）
+- 支持任意 workflow 拓扑（sequential / reactive / parallel）
+- 代表版本：v3.1
+
+### Phase 3 — 自组织团队（未来）
+- 给定任务和目标，系统自己设计流程、分配角色
+- 完全自主规划和执行
