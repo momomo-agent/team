@@ -430,7 +430,7 @@ class TeamDaemon {
               
               // Unblock affected tasks
               var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
-              var tm = new TaskManager(this.projectDir);
+              var tm = new TaskManager(this.projectDir, this);
               if (cr.affectedTasks) {
                 for (var j = 0; j < cr.affectedTasks.length; j++) {
                   var taskId = cr.affectedTasks[j];
@@ -526,7 +526,7 @@ class TeamDaemon {
 
     // 修复 3: 超时检测（>2小时强制标记 timeout）
     var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
-    var tm = new TaskManager(this.projectDir);
+    var tm = new TaskManager(this.projectDir, this);
     var now = Date.now();
     var TWO_HOURS = 2 * 60 * 60 * 1000;
 
@@ -698,6 +698,16 @@ class TeamDaemon {
   getTodoCount() {
     var kanban = this.getKanban();
     return (kanban.todo || []).length;
+  }
+
+  getInProgressCount() {
+    var kanban = this.getKanban();
+    return (kanban.inProgress || []).length;
+  }
+
+  getTestingCount() {
+    var kanban = this.getKanban();
+    return (kanban.testing || []).length;
   }
 
   isMilestoneComplete() {

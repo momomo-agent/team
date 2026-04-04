@@ -145,8 +145,8 @@ class WorkflowEngine {
       designedTasks: this.daemon.getTasksWithDesign() || 0,
       reviewCount: this.daemon.getReviewCount() || 0,
       doneCount: this.daemon.getDoneCount() || 0,
-      inProgressCount: this.daemon.getInProgressCount ? this.daemon.getInProgressCount() : 0,
-      testingCount: this.daemon.getTestingCount ? this.daemon.getTestingCount() : 0,
+      inProgressCount: this.daemon.getInProgressCount(),
+      testingCount: this.daemon.getTestingCount(),
       maxDevs: this.daemon.maxDevs || 3,
 
       // 状态检查
@@ -286,8 +286,8 @@ class WorkflowEngine {
     const self = this;
     let exitRequested = false;
     
-    // 事件处理器：重新评估所有 agent 触发条件
-    const evaluateTriggers = () => {
+    // 事件处理器：重新评估所有 agent 触发条件（保存引用用于清理）
+    const evaluateTriggers = function() {
       if (exitRequested) return;
       
       const freshCtx = self.buildContext();
@@ -317,30 +317,16 @@ class WorkflowEngine {
     // 初始触发
     evaluateTriggers();
     
-    // 轮询看护（60秒检查超时/卡死）
-    const watchdogInterval = setInterval(() => {
-      if (exitRequested) return;
-      
-      self.daemon.log('workflow', self.currentNode, '[REACTIVE] Watchdog: checking for timeouts');
-      
-      // 检查是否有 agent 超时（这里简化处理，实际超时由 daemon 的 AGENT_TIMEOUT 处理）
-      if (runningAgents.size === 0) {
-        evaluateTriggers(); // 没有运行中的 agent，重新评估
-      }
-    }, 60000);
-    
-    // 等待退出条件
+    // 主循环：轮询 + 事件驱动
+    const pollInterval = node.pollInterval || 5000;
     while (!exitRequested) {
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise(resolve => setTimeout(resolve, pollInterval));
       
-      // 如果没有运行中的 agent 且退出条件满足，退出
-      if (runningAgents.size === 0 && this.shouldExitReactive(node, this.buildContext())) {
-        exitRequested = true;
-      }
+      // 轮询：重新评估触发条件
+      evaluateTriggers();
     }
     
-    // 清理
-    clearInterval(watchdogInterval);
+    // 清理事件监听
     this.daemon.off('kanban_updated', evaluateTriggers);
     this.daemon.off('agent_complete', evaluateTriggers);
     this.daemon.off('cr_changed', evaluateTriggers);
@@ -373,44 +359,64 @@ class WorkflowEngine {
   }
 
   /**
-   * 执行 wait 节点（轮询模式）
+   * 执行 wait 节点（事件驱动 + 轮询混合）
    */
   async executeWait(node, ctx) {
-    const pollInterval = node.pollInterval || 10000; // 默认 10 秒轮询一次
-    const maxWait = node.maxWait || 3600000; // 默认最多等待 1 小时
+    const pollInterval = node.pollInterval || 10000;
+    const maxWait = node.maxWait || 3600000;
     
-    this.daemon.log('workflow', this.currentNode, `[WAIT] Polling for: ${node.trigger || 'condition'}`);
+    this.daemon.log('workflow', this.currentNode, `[WAIT] Waiting for: ${node.trigger || 'condition'}`);
     
     const startTime = Date.now();
+    const self = this;
+    let conditionMet = false;
     
-    while (true) {
-      // 刷新 context
-      ctx = this.buildContext();
+    // 检查条件的函数
+    const checkCondition = function() {
+      if (conditionMet) return;
+      
+      const freshCtx = self.buildContext();
       
       // 检查触发条件
-      if (node.condition && this.evaluateCondition(node.condition, ctx)) {
-        this.daemon.log('workflow', this.currentNode, '[WAIT] Condition met, continuing...');
-        break;
+      if (node.condition && self.evaluateCondition(node.condition, freshCtx)) {
+        self.daemon.log('workflow', self.currentNode, '[WAIT] Condition met');
+        conditionMet = true;
+        return;
       }
       
-      // 检查是否有新任务（通用触发条件）
-      if (node.trigger === 'new_task' && ctx.todoCount > 0) {
-        this.daemon.log('workflow', this.currentNode, '[WAIT] New task detected, continuing...');
-        break;
+      // 检查是否有新任务
+      if (node.trigger === 'new_task' && freshCtx.todoCount > 0) {
+        self.daemon.log('workflow', self.currentNode, '[WAIT] New task detected');
+        conditionMet = true;
+        return;
       }
-      
+    };
+    
+    // 监听事件（快速响应）
+    this.daemon.on('kanban_updated', checkCondition);
+    this.daemon.on('agent_complete', checkCondition);
+    
+    // 初始检查
+    checkCondition();
+    
+    // 轮询循环
+    while (!conditionMet) {
       // 超时检查
       if (Date.now() - startTime > maxWait) {
-        this.daemon.log('workflow', this.currentNode, '[WAIT] Max wait time reached, exiting...');
-        return; // 超时退出，不继续执行
+        this.daemon.log('workflow', this.currentNode, '[WAIT] Max wait time reached');
+        break;
       }
       
-      // 等待后再检查
       await new Promise(resolve => setTimeout(resolve, pollInterval));
+      checkCondition();
     }
     
+    // 清理事件监听
+    this.daemon.off('kanban_updated', checkCondition);
+    this.daemon.off('agent_complete', checkCondition);
+    
     // 条件满足，继续执行 next 节点
-    if (node.next) {
+    if (conditionMet && node.next) {
       await this.executeNode(node.next);
     }
   }
