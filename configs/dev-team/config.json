@@ -212,5 +212,8 @@
   "requiredFiles": [
     "VISION.md",
     "PRD.md"
-  ]
+  ],
+  "groups": {
+    "label": "milestones"
+  }
 }

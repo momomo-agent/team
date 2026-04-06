@@ -579,8 +579,16 @@ class TeamDaemon {
     return tm.getKanban();
   }
 
+  // --- Group system (milestone is the default group label) ---
+
+  get groupLabel() {
+    var cfg = this.config || {};
+    return (cfg.groups && cfg.groups.label) || 'milestones';
+  }
+
   getMilestones() {
-    var p = path.join(this.projectDir, '.team/milestones/milestones.json');
+    var label = this.groupLabel;
+    var p = path.join(this.projectDir, '.team', label, label + '.json');
     try {
       return JSON.parse(fs.readFileSync(p, 'utf8'));
     } catch {
@@ -601,7 +609,7 @@ class TeamDaemon {
     var ms = this.getActiveMilestone();
     if (!ms) return;
 
-    var designPath = path.join(this.projectDir, '.team/milestones', ms.id, 'design.md');
+    var designPath = path.join(this.projectDir, '.team/' + this.groupLabel, ms.id, 'design.md');
     var template = '# ' + ms.name + ' - Technical Design\n\n' +
       '## Architecture\n\n' +
       '## Implementation Plan\n\n' +
@@ -688,13 +696,14 @@ class TeamDaemon {
     var ms = this.getActiveMilestone();
     var msId = ms ? ms.id : '?';
     var msName = ms ? ms.name : 'Unknown';
-    this.log('milestone_complete', msId, '=== MILESTONE ' + msId + ' COMPLETE: ' + msName + ' ===');
+    var label = this.groupLabel;
+    this.log('milestone_complete', msId, '=== ' + label.toUpperCase() + ' ' + msId + ' COMPLETE: ' + msName + ' ===');
 
-    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，运行 QG + Monitor...', 'milestone_complete');
+    await this.notify(label + '完成: ' + msName, msName + ' 已完成，运行 QG + Monitor...', 'milestone_complete');
 
     // Ensure review directory exists
     if (ms) {
-      var reviewDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
+      var reviewDir = path.join(this.projectDir, '.team', label, msId, 'review');
       if (!fs.existsSync(reviewDir)) {
         fs.mkdirSync(reviewDir, { recursive: true });
       }
@@ -744,7 +753,7 @@ class TeamDaemon {
 
     // Write summary
     if (msId && msId !== '?') {
-      var summaryDir = path.join(this.projectDir, '.team/milestones', msId, 'review');
+      var summaryDir = path.join(this.projectDir, '.team/' + this.groupLabel, msId, 'review');
       if (!fs.existsSync(summaryDir)) {
         fs.mkdirSync(summaryDir, { recursive: true });
       }

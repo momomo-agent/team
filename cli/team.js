@@ -98,7 +98,6 @@ function init(dirName) {
     '.team/docs',
     '.team/monitor',
     '.team/change-requests',
-    '.team/milestones',
     '.team/tasks',
     'src'
   ];
@@ -132,8 +131,10 @@ function init(dirName) {
   });
   fs.writeFileSync(path.join(projectDir, '.team/config.json'), JSON.stringify(config, null, 2));
 
-  // Create milestones index
-  fs.writeFileSync(path.join(projectDir, '.team/milestones/milestones.json'), JSON.stringify({ milestones: [] }, null, 2));
+  // Create group index (milestones by default, configurable via groups.label)
+  const groupLabel = (config.groups && config.groups.label) || 'milestones';
+  fs.mkdirSync(path.join(projectDir, '.team', groupLabel), { recursive: true });
+  fs.writeFileSync(path.join(projectDir, '.team', groupLabel, groupLabel + '.json'), JSON.stringify({ milestones: [] }, null, 2));
 
   // Create template docs from config
   const docsRoot = config.docs && config.docs.root ? config.docs.root : '.team/docs';

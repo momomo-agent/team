@@ -69,8 +69,9 @@ function buildDynamicContext(projectDir) {
     }
   } catch {}
 
-  // Current milestones
-  const msPath = path.join(projectDir, '.team/milestones/milestones.json');
+  // Current groups (milestones by default)
+  const groupLabel = (config.groups && config.groups.label) || 'milestones';
+  const msPath = path.join(projectDir, '.team', groupLabel, groupLabel + '.json');
   try {
     const ms = JSON.parse(fs.readFileSync(msPath, 'utf8'));
     if (ms.milestones && ms.milestones.length > 0) {
@@ -172,9 +173,10 @@ function runAgent(agentType, projectDir) {
   console.log('[' + new Date().toISOString() + '] Running ' + agentType + ' agent...');
 
   // Ensure required directories exist
+  var groupLbl = (config.groups && config.groups.label) || 'milestones';
   var dirsToEnsure = [
-    '.team', '.team/gaps', '.team/gaps/milestones',
-    '.team/change-requests', '.team/milestones', '.team/tasks'
+    '.team', '.team/gaps', '.team/gaps/' + groupLbl,
+    '.team/change-requests', '.team/' + groupLbl, '.team/tasks'
   ];
   for (var i = 0; i < dirsToEnsure.length; i++) {
     var full = path.join(projectDir, dirsToEnsure[i]);

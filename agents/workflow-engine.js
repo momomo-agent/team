@@ -618,7 +618,8 @@ class WorkflowEngine {
           const data = this.daemon.getMilestones();
           const ms = (data.milestones || []).find(m =>
             m.status === 'active' || m.status === 'ready-for-work' || m.status === 'in-progress');
-          if (ms) ms.path = path.join('.team/milestones', ms.id);
+          const label = (this.config.groups && this.config.groups.label) || 'milestones';
+          if (ms) ms.path = path.join('.team', label, ms.id);
           return ms || null;
         },
         all: () => {
