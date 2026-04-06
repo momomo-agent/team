@@ -140,12 +140,24 @@ class TeamDaemon {
         stdio: ['ignore', 'inherit', 'inherit'] // no stdin (nohup-compatible)
       });
 
+      var timedOut = false;
       var timeout = setTimeout(function() {
+        timedOut = true;
         proc.kill('SIGTERM');
       }, AGENT_TIMEOUT);
 
       proc.on('close', function(code) {
         clearTimeout(timeout);
+
+        if (timedOut) {
+          // Agent timed out — don't retry, just fail and move on
+          self.updateAgentStatus(agentType, 'timeout', null);
+          self.log('error', agentType, 'timed out after ' + (AGENT_TIMEOUT/1000) + 's, skipping');
+          self.emit('agent_complete', { agent: agentType, success: false, timeout: true });
+          resolve(false);
+          return;
+        }
+
         if (code === 0) {
           self.updateAgentStatus(agentType, 'idle', null);
           self.log('agent_complete', agentType, 'completed successfully');
