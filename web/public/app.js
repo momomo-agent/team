@@ -428,7 +428,7 @@ function updateTabMatches(status, gaps) {
   Object.keys(tabs).forEach(function(key) {
     var val = tabs[key];
     var hasData = val != null;
-    var display = hasData ? val + '%' : '—';
+    var display = hasData ? val + '%' : '?';
     var colorClass = !hasData ? '' : val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
 
     var el = document.getElementById('tab-match-' + key);
@@ -823,7 +823,7 @@ function renderDoc(docId, docData, gaps) {
   var badge = document.getElementById('tab-match-' + docId);
   if (badge) {
     var hasMatch = match != null;
-    badge.textContent = hasMatch ? match + '%' : '—';
+    badge.textContent = hasMatch ? match + '%' : '?';
     badge.className = 'tab-match ' + (!hasMatch ? '' : match >= 80 ? 'green' : match >= 50 ? 'yellow' : 'red');
   }
 }
