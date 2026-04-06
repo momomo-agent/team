@@ -195,7 +195,8 @@ function runAgent(agentType, projectDir) {
       {
         cwd: projectDir,
         stdio: 'inherit',
-        timeout: 2 * 60 * 60 * 1000 // 2 hours
+        timeout: 2 * 60 * 60 * 1000, // 2 hours
+        env: Object.assign({}, process.env, { CI: 'true' }) // force non-interactive mode (vitest run, etc.)
       }
     );
 
