@@ -123,6 +123,48 @@ class TeamDaemon {
     this.eventBus.emit(event, agent, { details: details, performance: entry.performance });
   }
 
+  // --- Orphan Process Cleanup ---
+
+  _killOrphanAgents() {
+    try {
+      // Find any runner.js processes for this project and kill their process groups
+      var result = execSync(
+        'pgrep -f "runner.js ' + this.projectDir + '" 2>/dev/null || true',
+        { encoding: 'utf8', timeout: 5000 }
+      ).trim();
+      if (result) {
+        var pids = result.split('\n').filter(Boolean);
+        for (var i = 0; i < pids.length; i++) {
+          try {
+            process.kill(-parseInt(pids[i]), 'SIGTERM');
+            this.log('workflow', 'daemon', 'Killed orphan process group: ' + pids[i]);
+          } catch(e) {
+            try { process.kill(parseInt(pids[i]), 'SIGTERM'); } catch(e2) {}
+          }
+        }
+      }
+    } catch(e) {
+      this.log('error', 'daemon', 'Orphan cleanup error: ' + e.message);
+    }
+  }
+
+  _resetStuckAgents() {
+    var statusPath = path.join(this.projectDir, '.team/agent-status.json');
+    try {
+      var all = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+      var reset = false;
+      for (var key in all) {
+        if (all[key].status === 'running') {
+          this.log('workflow', 'daemon', 'Reset stuck agent: ' + key + ' (was running since ' + all[key].lastRun + ')');
+          all[key].status = 'idle';
+          all[key].currentTask = null;
+          reset = true;
+        }
+      }
+      if (reset) fs.writeFileSync(statusPath, JSON.stringify(all, null, 2));
+    } catch(e) {}
+  }
+
   // --- Agent Execution ---
 
   runAgent(agentType) {
@@ -733,11 +775,22 @@ class TeamDaemon {
   // --- Main Loop (safety interval) ---
 
   async run() {
+    // Watchdog: if busy for longer than agent timeout + 10min buffer, force reset
     if (this.busy) {
-      this.log('agent_start', 'daemon', 'Still busy, skipping safety check');
-      return;
+      var busyElapsed = Date.now() - (this._busySince || 0);
+      var watchdogLimit = AGENT_TIMEOUT + 10 * 60 * 1000; // timeout + 10min buffer
+      if (busyElapsed > watchdogLimit) {
+        this.log('error', 'daemon', 'Watchdog: busy for ' + Math.round(busyElapsed/60000) + 'min, force reset');
+        // Kill any orphan agent processes
+        this._killOrphanAgents();
+        this.busy = false;
+      } else {
+        this.log('agent_start', 'daemon', 'Still busy (' + Math.round(busyElapsed/60000) + 'min), skipping safety check');
+        return;
+      }
     }
     this.busy = true;
+    this._busySince = Date.now();
 
     try {
       var config = this.loadWorkflowConfig();
@@ -772,6 +825,12 @@ class TeamDaemon {
 
   start() {
     if (this.running) return;
+
+    // Clean up any orphan agent processes from previous runs
+    this._killOrphanAgents();
+    
+    // Reset agent statuses that are stuck in 'running'
+    this._resetStuckAgents();
     
     // Check required files from config (if declared)
     var requiredFiles = (this.config && this.config.requiredFiles) || [];
