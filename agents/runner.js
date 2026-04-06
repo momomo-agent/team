@@ -195,7 +195,7 @@ function runAgent(agentType, projectDir) {
       {
         cwd: projectDir,
         stdio: 'inherit',
-        timeout: 60 * 60 * 1000 // 60 min
+        timeout: 2 * 60 * 60 * 1000 // 2 hours
       }
     );
 

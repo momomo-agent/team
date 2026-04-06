@@ -17,7 +17,7 @@ const path = require('path');
 const WorkflowEngine = require('./workflow-engine');
 
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
-const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
+const AGENT_TIMEOUT = 2 * 60 * 60 * 1000;   // 2 hours
 const RUNNER = path.join(__dirname, 'runner.js');
 const DEVTEAM_ROOT = path.join(__dirname, '..');
 const DEFAULT_WORKFLOW = 'dev-team';
