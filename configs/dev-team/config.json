@@ -215,5 +215,15 @@
   ],
   "groups": {
     "label": "milestones"
+  },
+  "cr": {
+    "hierarchy": [
+      "pm",
+      "architect",
+      "tech_lead",
+      "developer",
+      "tester"
+    ],
+    "staleAfterHours": 48
   }
 }

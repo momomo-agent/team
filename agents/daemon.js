@@ -320,141 +320,179 @@ class TeamDaemon {
 
   // --- CR Checking (Task 1) ---
 
+  // ─── Change Request System ───
+  //
+  // Core principles:
+  //   1. Escalation: downstream → direct upstream only (no skipping levels)
+  //   2. Quality gate: evidence + impact + proposal required
+  //
+  // Config (optional):
+  //   cr.hierarchy: ["pm", "architect", "tech_lead", "developer", "tester"]
+  //   cr.staleAfterHours: 48
+  //
+  // CR format:
+  //   { id, from, to, evidence, impact, proposal, status, severity, created }
+
+  getCRHierarchy() {
+    return (this.config && this.config.cr && this.config.cr.hierarchy) ||
+      ['pm', 'architect', 'tech_lead', 'developer', 'tester'];
+  }
+
+  getUpstream(role) {
+    const hierarchy = this.getCRHierarchy();
+    const idx = hierarchy.indexOf(role);
+    if (idx <= 0) return null; // top of chain or not found
+    return hierarchy[idx - 1];
+  }
+
+  submitCR(cr) {
+    // Quality gate: must have evidence, impact, proposal
+    const missing = [];
+    if (!cr.evidence) missing.push('evidence');
+    if (!cr.impact) missing.push('impact');
+    if (!cr.proposal) missing.push('proposal');
+    if (!cr.from) missing.push('from');
+
+    if (missing.length > 0) {
+      this.log('cr', cr.from || 'unknown',
+        `[CR-REJECTED] Missing required fields: ${missing.join(', ')}`);
+      return { accepted: false, reason: `Missing: ${missing.join(', ')}` };
+    }
+
+    // Route to direct upstream only
+    const upstream = cr.to || this.getUpstream(cr.from);
+    if (!upstream) {
+      this.log('cr', cr.from,
+        `[CR-REJECTED] ${cr.from} is at top of hierarchy, cannot escalate`);
+      return { accepted: false, reason: `${cr.from} has no upstream` };
+    }
+
+    // Validate: from must be directly below to (no skipping levels)
+    const hierarchy = this.getCRHierarchy();
+    const fromIdx = hierarchy.indexOf(cr.from);
+    const toIdx = hierarchy.indexOf(upstream);
+    if (fromIdx - toIdx !== 1) {
+      this.log('cr', cr.from,
+        `[CR-REJECTED] ${cr.from} → ${upstream}: must escalate to direct upstream only`);
+      return { accepted: false, reason: `Cannot skip levels: ${cr.from} → ${upstream}` };
+    }
+
+    // Create CR
+    const crId = 'cr-' + Date.now();
+    const crData = {
+      id: crId,
+      from: cr.from,
+      to: upstream,
+      evidence: cr.evidence,
+      impact: cr.impact,
+      proposal: cr.proposal,
+      severity: cr.severity || 'normal',
+      status: 'pending',
+      created: new Date().toISOString()
+    };
+
+    const crDir = path.join(this.projectDir, '.team/change-requests');
+    fs.mkdirSync(crDir, { recursive: true });
+    fs.writeFileSync(path.join(crDir, crId + '.json'), JSON.stringify(crData, null, 2));
+
+    this.log('cr', cr.from,
+      `[CR] ${crId}: ${cr.from} → ${upstream} | ${cr.impact}`);
+    this.emit('cr_submitted', crData);
+
+    return { accepted: true, id: crId, to: upstream };
+  }
+
+  reviewCR(crId, decision, resolution) {
+    const crPath = path.join(this.projectDir, '.team/change-requests', crId + '.json');
+    if (!fs.existsSync(crPath)) return { error: 'CR not found' };
+
+    const cr = JSON.parse(fs.readFileSync(crPath, 'utf8'));
+
+    if (decision === 'accept') {
+      cr.status = 'accepted';
+      cr.resolution = resolution || cr.proposal;
+      cr.reviewedAt = new Date().toISOString();
+      fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
+
+      this.log('cr', cr.to,
+        `[CR-ACCEPTED] ${crId}: ${cr.to} accepted, will fix`);
+      this.emit('cr_accepted', cr);
+
+    } else if (decision === 'escalate') {
+      // Upstream can't fix → escalate to their upstream
+      const nextUp = this.getUpstream(cr.to);
+      if (!nextUp) {
+        cr.status = 'rejected';
+        cr.resolution = 'Top of hierarchy, cannot escalate further';
+        cr.reviewedAt = new Date().toISOString();
+        fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
+        this.log('cr', cr.to, `[CR-CEILING] ${crId}: no upstream to escalate to`);
+      } else {
+        cr.to = nextUp;
+        cr.escalatedAt = new Date().toISOString();
+        fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
+        this.log('cr', cr.to, `[CR-ESCALATED] ${crId}: escalated to ${nextUp}`);
+        this.emit('cr_escalated', cr);
+      }
+
+    } else if (decision === 'reject') {
+      cr.status = 'rejected';
+      cr.resolution = resolution || 'Rejected by reviewer';
+      cr.reviewedAt = new Date().toISOString();
+      fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
+
+      this.log('cr', cr.to,
+        `[CR-REJECTED] ${crId}: ${cr.to} rejected — ${cr.resolution}`);
+      this.emit('cr_rejected', cr);
+    }
+
+    return { status: cr.status };
+  }
+
   checkPendingCRs() {
     var crDir = path.join(this.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return;
 
     var files;
-    try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return; }
+    try { files = fs.readdirSync(crDir).filter(f => f.endsWith('.json')); } catch { return; }
 
-    // CR 趋势监控：检测异常增长
-    var pendingCount = 0;
-    var totalCount = files.length;
-    
-    var blockerCRs = [];
-    var architectureIssues = [];
-    
-    for (var i = 0; i < files.length; i++) {
-      var f = files[i];
+    const staleHours = (this.config && this.config.cr && this.config.cr.staleAfterHours) || 48;
+    const staleMs = staleHours * 60 * 60 * 1000;
+    let pendingCount = 0;
+
+    for (const f of files) {
       try {
-        var cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
-        if (cr.status === 'pending') {
-          pendingCount++;
-          
-          // Check if this is an architecture issue (should trigger architect, not CR)
-          // Architecture-level CR detection: affectedTasks ≥3 and not from architect
-          var isArchIssue = (cr.affectedTasks && cr.affectedTasks.length >= 3 && cr.from !== 'architect') ||
-            (cr.reason && (
-              cr.reason.toLowerCase().includes('architecture') ||
-              cr.reason.toLowerCase().includes('架构') ||
-              cr.reason.toLowerCase().includes('missing component') ||
-              cr.reason.toLowerCase().includes('design flaw')
-            ));
-          
-          if (isArchIssue) {
-            architectureIssues.push(cr);
-            this.log('error', cr.id, 'Architecture issue detected, should trigger architect instead of CR');
-            // Auto-resolve this CR and trigger architect
-            cr.status = 'resolved';
-            cr.resolution = 'Converted to architect task';
-            fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
-            continue;
-          }
-          
-          this.log('cr_created', cr.from || 'unknown', 'CR ' + (cr.id || f) + ': ' + (cr.reason || 'no reason'));
-          this.notify('Change Request', '[' + cr.from + '] ' + (cr.reason || 'New CR pending'), 'cr_created');
-          
-          // Task 2: Detect blocker CRs (affecting multiple tasks)
-          if (cr.isBlocker || (cr.affectedTasks && cr.affectedTasks.length >= 2)) {
-            blockerCRs.push(cr);
-            
-            // Stale CR: auto-downgrade after 48 hours
-            var created = new Date(cr.created).getTime();
-            var now = Date.now();
-            var elapsed = now - created;
-            var FORTY_EIGHT_HOURS = 48 * 60 * 60 * 1000;
-            
-            if (elapsed > FORTY_EIGHT_HOURS) {
-              this.log('error', cr.id, 'BLOCKER CR timeout (>48h), downgrading to normal CR');
-              cr.isBlocker = false;
-              fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
-              
-              // Unblock affected tasks
-              var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
-              var tm = new TaskManager(this.projectDir, this);
-              if (cr.affectedTasks) {
-                for (var j = 0; j < cr.affectedTasks.length; j++) {
-                  var taskId = cr.affectedTasks[j];
-                  try {
-                    var task = tm.getTask(taskId);
-                    if (task && task.status === 'blocked') {
-                      var newBlockedBy = (task.blockedBy || []).filter(function(id) { return id !== cr.id; });
-                      if (newBlockedBy.length === 0) {
-                        tm.updateTask(taskId, { status: 'todo', blockedBy: newBlockedBy });
-                      } else {
-                        tm.updateTask(taskId, { blockedBy: newBlockedBy });
-                      }
-                    }
-                  } catch {}
-                }
-              }
-            } else {
-              this.log('error', cr.id, 'BLOCKER CR: affects ' + (cr.affectedTasks ? cr.affectedTasks.length : 0) + ' tasks');
-            }
-          }
+        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
+        if (cr.status !== 'pending') continue;
+        pendingCount++;
+
+        // Stale CR detection
+        const elapsed = Date.now() - new Date(cr.created).getTime();
+        if (elapsed > staleMs) {
+          cr.status = 'stale';
+          cr.resolution = `Auto-staled after ${staleHours}h without review`;
+          fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
+          this.log('cr', cr.to, `[CR-STALE] ${cr.id}: pending ${staleHours}h+, auto-staled`);
         }
       } catch {}
     }
 
-    // CR 异常检测：pending CR 过多
-    if (pendingCount > 20) {
-      this.log('error', 'cr_anomaly', 'CR 异常增长: ' + pendingCount + ' pending CRs (total: ' + totalCount + ')');
-      this.notify('CR Anomaly Detected', pendingCount + ' pending CRs detected - possible duplicate submissions', 'cr_anomaly');
-    }
-
-    // Trigger architect for architecture-level CRs
-    if (architectureIssues.length > 0) {
-      this.log('agent_start', 'architect', 'Triggering architect for ' + architectureIssues.length + ' architecture issue(s)');
-      this.notify('Architecture Issues Detected', architectureIssues.length + ' issue(s) need architect review', 'architecture_issue');
-      // 立即触发 architect
-      var self = this;
-      this.runAgent('architect').catch(function(err) {
-        self.log('error', 'architect', 'Failed to run architect: ' + err.message);
-      });
-    }
-
-    // Task 2: Notify about blocker CRs
-    if (blockerCRs.length > 0) {
-      var blockerMsg = blockerCRs.length + ' blocker CR(s) detected, ' + 
-        blockerCRs.map(function(cr) { return cr.id; }).join(', ');
-      this.notify('Blocker CRs Detected', blockerMsg, 'blocker_cr');
-    }
-
-    // Emit cr_changed event if there are pending CRs or architecture issues
-    if (pendingCount > 0 || architectureIssues.length > 0) {
-      this.emit('cr_changed', { 
-        pendingCount: pendingCount, 
-        totalCount: totalCount,
-        blockerCount: blockerCRs.length,
-        architectureIssues: architectureIssues.length
-      });
+    if (pendingCount > 10) {
+      this.log('cr', 'system', `[CR-ANOMALY] ${pendingCount} pending CRs — possible noise`);
     }
   }
 
-  // Check for pending blocker CRs
   hasBlockerCR() {
     var crDir = path.join(this.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return false;
 
     var files;
-    try { files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); }); } catch { return false; }
+    try { files = fs.readdirSync(crDir).filter(f => f.endsWith('.json')); } catch { return false; }
 
-    for (var i = 0; i < files.length; i++) {
+    for (const f of files) {
       try {
-        var cr = JSON.parse(fs.readFileSync(path.join(crDir, files[i]), 'utf8'));
-        if (cr.status === 'pending' && cr.isBlocker) {
-          return true;
-        }
+        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
+        if (cr.status === 'pending' && cr.severity === 'blocker') return true;
       } catch {}
     }
     return false;
