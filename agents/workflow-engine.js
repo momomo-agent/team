@@ -123,6 +123,9 @@ class WorkflowEngine {
       case 'function':
         if (typeof exec.fn === 'function') await exec.fn(ctx);
         break;
+      case 'workflow':
+        await this.executeStepWorkflow(exec, step, ctx);
+        break;
     }
   }
 
@@ -174,6 +177,47 @@ class WorkflowEngine {
         this.applyContextOverrides(step.post.on_exit_nonzero);
       }
     }
+  }
+
+  async executeStepWorkflow(exec, step, ctx) {
+    const configName = exec.config;
+    const maxDepth = exec.maxDepth || 5;
+
+    // Depth guard
+    const currentDepth = (this._subWorkflowDepth || 0) + 1;
+    if (currentDepth > maxDepth) {
+      this.daemon.log('error', this.currentNode,
+        `[WORKFLOW] Max nesting depth (${maxDepth}) exceeded for "${configName}"`);
+      return;
+    }
+
+    // Load sub-workflow config
+    const configPath = path.join(__dirname, '../configs', configName, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      this.daemon.log('error', this.currentNode,
+        `[WORKFLOW] Config not found: configs/${configName}/config.json`);
+      return;
+    }
+
+    const subConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    subConfig._workflow = configName;
+
+    // Merge parent context overrides into sub-workflow
+    if (exec.context) {
+      if (!subConfig.workflow.context) subConfig.workflow.context = {};
+      Object.assign(subConfig.workflow.context, exec.context);
+    }
+
+    this.daemon.log('workflow', this.currentNode,
+      `[WORKFLOW] → ${configName} (depth ${currentDepth})`);
+
+    // Create and run sub-engine
+    const subEngine = new WorkflowEngine(subConfig, this.daemon);
+    subEngine._subWorkflowDepth = currentDepth;
+    await subEngine.execute();
+
+    this.daemon.log('workflow', this.currentNode,
+      `[WORKFLOW] ← ${configName} done`);
   }
 
   // v3 兼容: step.agents 写法
