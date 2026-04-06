@@ -77,7 +77,7 @@ function buildDynamicContext(projectDir) {
     if (ms.milestones && ms.milestones.length > 0) {
       const active = ms.milestones.find(function(m) { return m.status === 'active'; });
       if (active) {
-        parts.push('Active milestone: ' + active.id + ' (' + active.name + '), tasks: ' + (active.tasks || []).length);
+        parts.push('Active group: ' + active.id + ' (' + active.name + '), tasks: ' + (active.tasks || []).length);
       }
       parts.push('Total milestones: ' + ms.milestones.length);
     }

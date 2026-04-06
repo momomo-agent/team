@@ -666,7 +666,7 @@ class TeamDaemon {
     }
 
     try {
-      execSync('git add -A && git tag -a ' + msId + '-complete -m "milestone ' + msId + ' complete: ' + msName + '"', {
+      execSync('git add -A && git tag -a ' + msId + '-complete -m "group ' + msId + ' complete: ' + msName + '"', {
         cwd: this.projectDir,
         stdio: 'pipe'
       });
