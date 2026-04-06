@@ -4,6 +4,7 @@
   "steps": [
     {
       "id": "init-architecture",
+      "when": "!hasArchitecture",
       "execute": { "type": "agent", "agent": "architect" }
     }
   ],

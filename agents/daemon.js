@@ -794,26 +794,8 @@ class TeamDaemon {
 
     try {
       var config = this.loadWorkflowConfig();
-      var milestones = this.getMilestones();
-      var active = this.getActiveMilestone();
-
-      if (!milestones.milestones || milestones.milestones.length === 0) {
-        await this.onProjectStart();
-      } else if (this.isMilestoneComplete()) {
-        await this.onMilestoneComplete();
-      } else if (active) {
-        const engine = new WorkflowEngine(config, this);
-        await engine.executeNode('work_loop');
-      } else {
-        // All milestones completed, no active one
-        this.log('agent_start', 'pm', 'All milestones completed, checking for new work...');
-        await this.runAgent('pm');
-        var newActive = this.getActiveMilestone();
-        if (newActive) {
-          const engine = new WorkflowEngine(config, this);
-          await engine.executeNode('work_loop');
-        }
-      }
+      const engine = new WorkflowEngine(config, this);
+      await engine.execute();
     } catch (err) {
       this.log('error', 'daemon', 'Error in main loop: ' + err.message);
     } finally {

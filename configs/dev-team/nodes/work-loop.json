@@ -3,17 +3,6 @@
   "description": "PM 调度中心 — PM 评估后并行派发所有角色，全部完成后回 PM",
   "steps": [
     {
-      "id": "monitors",
-      "when": "iteration == 1 || iteration % 5 == 0",
-      "parallel": true,
-      "branches": [
-        { "id": "vision-check", "execute": { "type": "agent", "agent": "vision_monitor" } },
-        { "id": "prd-check", "execute": { "type": "agent", "agent": "prd_monitor" } },
-        { "id": "dbb-check", "execute": { "type": "agent", "agent": "dbb_monitor" } },
-        { "id": "arch-check", "execute": { "type": "agent", "agent": "arch_monitor" } }
-      ]
-    },
-    {
       "id": "pm-dispatch",
       "execute": { "type": "agent", "agent": "pm" }
     },
