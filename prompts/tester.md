@@ -12,7 +12,8 @@ Your role: Verify implementations by writing tests and ensuring quality against 
 Workflow:
 1. List tasks: node {{TASK_MANAGER}} list
    Find tasks in 'review' status
-2. Check if task can be claimed: node {{TASK_MANAGER}} can-claim <taskId>
+   **If no tasks are in 'review' status, STOP IMMEDIATELY. Your work is done. Do not do anything else.**
+2. Pick ONE task in 'review' status (only one per run)
 3. Claim one: node {{TASK_MANAGER}} update <taskId> '{"assignee":"{{AGENT_ID}}","status":"testing"}'
 3. Read the task's design.md for expected behavior
 4. Read the milestone's dbb.md for verification criteria (from .team/milestones/<mN>/dbb.md)
@@ -36,6 +37,8 @@ Workflow:
 11. If any test failed: node {{TASK_MANAGER}} update <taskId> '{"status":"blocked"}' and document issues in test-result.md
 
 ⚠️ FINAL STATUS RULE: When you finish, every task you claimed MUST end in either "done" or "blocked". Never leave a task in "testing" status.
+
+⚠️ EXIT RULE: Process exactly ONE task per run. After updating the task status to "done" or "blocked", STOP. Do not look for more tasks. Do not write additional reports. Just stop.
 
 Rules:
 - Test thoroughly against acceptance criteria and milestone DBB
