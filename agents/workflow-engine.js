@@ -126,6 +126,9 @@ class WorkflowEngine {
       case 'workflow':
         await this.executeStepWorkflow(exec, step, ctx);
         break;
+      case 'group':
+        await this.executeStepGroup(exec, step, ctx);
+        break;
     }
   }
 
@@ -218,6 +221,54 @@ class WorkflowEngine {
 
     this.daemon.log('workflow', this.currentNode,
       `[WORKFLOW] ← ${configName} done`);
+  }
+
+  async executeStepGroup(exec, step, ctx) {
+    const groupLabel = (this.config.groups && this.config.groups.label) || 'milestones';
+    const groupId = exec.group; // specific group id, or "active" for current active
+    const configName = exec.config; // sub-workflow to run for this group
+
+    // Resolve group
+    let group = null;
+    if (groupId === 'active' || !groupId) {
+      // Find active group
+      const data = this.daemon.getMilestones();
+      group = (data.milestones || []).find(g =>
+        g.status === 'active' || g.status === 'ready-for-work' || g.status === 'in-progress');
+    } else {
+      const data = this.daemon.getMilestones();
+      group = (data.milestones || []).find(g => g.id === groupId);
+    }
+
+    if (!group) {
+      this.daemon.log('workflow', this.currentNode,
+        `[GROUP] No active ${groupLabel} found, skipping`);
+      return;
+    }
+
+    this.daemon.log('workflow', this.currentNode,
+      `[GROUP] ${groupLabel}/${group.id} (${group.name}) — ${(group.tasks || []).length} tasks`);
+
+    if (!configName) {
+      // No sub-workflow — just mark the group context
+      this.daemon.log('workflow', this.currentNode,
+        `[GROUP] ${group.id} selected (no sub-workflow)`);
+      return;
+    }
+
+    // Run sub-workflow with group context injected
+    const subExec = {
+      type: 'workflow',
+      config: configName,
+      maxDepth: exec.maxDepth || 5,
+      context: Object.assign({}, exec.context || {}, {
+        currentGroup: group.id,
+        currentGroupName: group.name,
+        currentGroupTasks: (group.tasks || []).length
+      })
+    };
+
+    await this.executeStepWorkflow(subExec, step, ctx);
   }
 
   // v3 兼容: step.agents 写法
