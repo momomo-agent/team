@@ -718,9 +718,10 @@ class WorkflowEngine {
     if (typeof expr === 'function') return expr(ctx);
     if (typeof expr !== 'string') return false;
 
-    // 预定义快捷名
+    // Condition shortcuts — convenience aliases for common expressions
     const shortcuts = {
-      'milestone_complete': () => ctx.isMilestoneComplete(),
+      'group_complete': () => ctx.isMilestoneComplete(),
+      'milestone_complete': () => ctx.isMilestoneComplete(), // backward compat alias
       'no-architecture': () => !ctx.hasArchitecture(),
     };
     if (shortcuts[expr]) return shortcuts[expr]();

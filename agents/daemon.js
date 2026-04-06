@@ -105,7 +105,7 @@ class TeamDaemon {
     };
 
     // Task 4: Add performance metrics
-    if (event === 'agent_start' || event === 'agent_complete' || event === 'milestone_complete') {
+    if (event === 'agent_start' || event === 'agent_complete' || event === 'group_complete') {
       var mem = process.memoryUsage();
       entry.performance = {
         memoryMB: Math.round(mem.heapUsed / 1024 / 1024),
@@ -342,7 +342,7 @@ class TeamDaemon {
           pendingCount++;
           
           // Check if this is an architecture issue (should trigger architect, not CR)
-          // 修复 3: 增加上下文判断 - affectedTasks ≥3 且不是 architect 发起的
+          // Architecture-level CR detection: affectedTasks ≥3 and not from architect
           var isArchIssue = (cr.affectedTasks && cr.affectedTasks.length >= 3 && cr.from !== 'architect') ||
             (cr.reason && (
               cr.reason.toLowerCase().includes('architecture') ||
@@ -368,7 +368,7 @@ class TeamDaemon {
           if (cr.isBlocker || (cr.affectedTasks && cr.affectedTasks.length >= 2)) {
             blockerCRs.push(cr);
             
-            // 修复 8: 超过 48 小时自动降级为普通 CR
+            // Stale CR: auto-downgrade after 48 hours
             var created = new Date(cr.created).getTime();
             var now = Date.now();
             var elapsed = now - created;
@@ -441,7 +441,7 @@ class TeamDaemon {
     }
   }
 
-  // 修复 1: 检查是否有 pending blocker CR
+  // Check for pending blocker CRs
   hasBlockerCR() {
     var crDir = path.join(this.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return false;
@@ -475,7 +475,7 @@ class TeamDaemon {
     var anyRunning = Object.values(agentStatus).some(function(a) { return a.status === 'running'; });
     if (anyRunning) return; // agents still working, not stuck yet
 
-    // 修复 3: 超时检测（>2小时强制标记 timeout）
+    // Timeout detection: force-mark after 2 hours
     var TaskManager = require(path.join(__dirname, '../lib/task-manager.js'));
     var tm = new TaskManager(this.projectDir, this);
     var now = Date.now();
@@ -555,7 +555,7 @@ class TeamDaemon {
   // --- Event Handlers (Config-Driven) ---
 
   async onProjectStart() {
-    this.log('milestone_complete', null, '=== PROJECT START ===');
+    this.log('group_complete', null, '=== PROJECT START ===');
 
     var config = this.loadWorkflowConfig();
     this.log('agent_start', 'workflow', 'Config version: ' + config.version);
@@ -569,9 +569,9 @@ class TeamDaemon {
     var msId = ms ? ms.id : '?';
     var msName = ms ? ms.name : 'Unknown';
     var label = this.groupLabel;
-    this.log('milestone_complete', msId, '=== ' + label.toUpperCase() + ' ' + msId + ' COMPLETE: ' + msName + ' ===');
+    this.log('group_complete', msId, '=== ' + label.toUpperCase() + ' ' + msId + ' COMPLETE: ' + msName + ' ===');
 
-    await this.notify(label + '完成: ' + msName, msName + ' 已完成，运行 QG + Monitor...', 'milestone_complete');
+    await this.notify(label + '完成: ' + msName, msName + ' 已完成，运行 QG + Monitor...', 'group_complete');
 
     // Ensure review directory exists
     if (ms) {
@@ -581,10 +581,11 @@ class TeamDaemon {
       }
     }
 
-    // v3: 走 workflow engine 的 milestone_qg → monitor → pm_decide → work_loop
+    // Run quality gate node from workflow config
     var config = this.loadWorkflowConfig();
     const engine = new WorkflowEngine(config, this);
-    await engine.executeNode('milestone_qg');
+    const qgNode = (config.groups && config.groups.qgNode) || 'milestone_qg';
+    await engine.executeNode(qgNode);
   }
 
   // --- Task 3: Cross-Validation of Match Percentages ---
@@ -637,7 +638,7 @@ class TeamDaemon {
         suspicious: maxMatch > 90 && minMatch < 50
       };
       fs.writeFileSync(path.join(summaryDir, 'summary.json'), JSON.stringify(summary, null, 2));
-      this.log('milestone_complete', msId, 'Cross-validation: verified match=' + verifiedMatch + '%');
+      this.log('group_complete', msId, 'Cross-validation: verified match=' + verifiedMatch + '%');
     }
   }
 
@@ -669,7 +670,7 @@ class TeamDaemon {
         cwd: this.projectDir,
         stdio: 'pipe'
       });
-      this.log('milestone_complete', msId, 'Auto git tag: ' + msId + '-complete');
+      this.log('group_complete', msId, 'Auto git tag: ' + msId + '-complete');
     } catch (err) {
       this.log('error', msId, 'Auto git tag failed: ' + err.message);
     }

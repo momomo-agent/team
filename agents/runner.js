@@ -155,8 +155,8 @@ function buildPrompt(agentType, projectDir, agentId) {
     prompt = prompt.replace(/\{\{DYNAMIC_CONTEXT\}\}/g, dynamicCtx);
   }
 
-  // Inject gaps summary + existing tasks for architect
-  if (baseType === 'architect') {
+  // Inject gaps summary + existing tasks if prompt uses these placeholders
+  if (prompt.includes('{{GAPS_SUMMARY}}') || prompt.includes('{{EXISTING_TASKS}}')) {
     var gapsSummary = buildGapsSummary(projectDir);
     var existingTasks = buildExistingTasks(projectDir);
     prompt = prompt.replace(/\{\{GAPS_SUMMARY\}\}/g, gapsSummary);

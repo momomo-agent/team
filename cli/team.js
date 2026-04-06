@@ -62,6 +62,11 @@ function readJSON(filepath) {
   catch { return null; }
 }
 
+function getGroupLabel(dir) {
+  const config = readJSON(path.join(dir, '.team/config.json'));
+  return (config && config.groups && config.groups.label) || 'milestones';
+}
+
 function readFile(filepath) {
   try { return fs.readFileSync(filepath, 'utf8'); }
   catch { return null; }
@@ -490,9 +495,10 @@ function showGaps() {
     }
   }
 
-  // L3 milestone gaps
+  // L3 group gaps
   if (!level || level === 'L3') {
-    const msGapsDir = path.join(dir, '.team/gaps/milestones');
+    const gl = getGroupLabel(dir);
+    const msGapsDir = path.join(dir, '.team/gaps', gl);
     if (fs.existsSync(msGapsDir)) {
       try {
         const files = fs.readdirSync(msGapsDir).filter(f => f.endsWith('.json'));
