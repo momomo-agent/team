@@ -171,7 +171,29 @@ class WorkflowEngine {
       }
 
       // 执行
-      await this.executeStep(step, ctx);
+      if (step.parallel && step.branches) {
+        // Parallel branches: run all eligible branches concurrently
+        const eligible = step.branches.filter(b => {
+          const w = b.when || b.trigger || b.condition;
+          if (w && !this.evaluate(w, ctx)) {
+            this.daemon.log('workflow', this.currentNode,
+              `[PARALLEL-SKIP] ${b.id || '?'}: ${w}`);
+            return false;
+          }
+          return true;
+        });
+
+        if (eligible.length > 0) {
+          this.daemon.log('workflow', this.currentNode,
+            `[PARALLEL] ${eligible.map(b => b.id || '?').join(', ')}`);
+          await Promise.all(eligible.map(async branch => {
+            await this.executeStep(branch, ctx);
+            if (branch.post) this.enforcePost(branch.post);
+          }));
+        }
+      } else {
+        await this.executeStep(step, ctx);
+      }
 
       // CR 分支：agent 执行后可能提交了 CR
       if (step.cr && step.cr.enabled && step.execute && step.execute.type === 'agent') {
