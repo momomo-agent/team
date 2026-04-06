@@ -6,7 +6,8 @@
   <title id="page-title">DevTeam</title>
   <link id="favicon" rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='40' fill='%234ade80'/></svg>">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/agentic-render@latest/dist/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/agentic-render@latest/dist/agentic-render.umd.js"></script>
   <style>
     :root {
       --bg: #e8e6e1;
@@ -253,6 +254,15 @@
     .ms-task-name { color: #555; }
     .ms-task-name.done { text-decoration: line-through; color: var(--dim); }
 
+    /* ====== Logs ====== */
+    .log-entry { display: flex; gap: 8px; padding: 3px 0; font-family: monospace; font-size: 11px; border-bottom: 1px solid #f0f0ee; align-items: baseline; }
+    .log-time { color: var(--dim); min-width: 42px; flex-shrink: 0; }
+    .log-agent { min-width: 90px; flex-shrink: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-details { color: #555; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log-entry.error .log-agent, .log-entry.error .log-details { color: var(--error); }
+    .log-entry.agent_complete .log-agent { color: var(--accent); }
+    .log-entry.agent_start .log-agent { color: var(--blue); }
+
     /* ====== Mobile ====== */
     @media (max-width: 768px) {
       body { height: auto; overflow: auto; }
@@ -351,11 +361,13 @@
         <div class="right-tab active" data-rtab="pipeline">Pipeline</div>
         <div class="right-tab" data-rtab="kanban">Kanban</div>
         <div class="right-tab" data-rtab="milestones">Milestones</div>
+        <div class="right-tab" data-rtab="logs">Logs</div>
       </div>
       <div class="right-paper">
         <div class="right-pane active" id="rpane-pipeline"></div>
         <div class="right-pane" id="rpane-kanban"></div>
         <div class="right-pane" id="rpane-milestones"></div>
+        <div class="right-pane" id="rpane-logs"></div>
       </div>
     </div>
   </div>

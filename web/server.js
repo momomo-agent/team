@@ -241,16 +241,18 @@ const server = http.createServer((req, res) => {
       }
     } catch {}
     
+    const anyAgentRunning = Object.values(agents).some(a => a.status === 'running');
     sendJSON({
       project: { ...config, name: projectName },
-      daemon: running,
+      daemon: running || anyAgentRunning,
       agentCount: Object.keys(agents).length,
       activeAgentCount: activeCount,
+      workflow: config._workflow || null,
       match: {
-        vision: gaps.vision ? gaps.vision.match : 0,
-        prd: gaps.prd ? gaps.prd.match : 0,
-        dbb: gaps.dbb ? gaps.dbb.match : 0,
-        architecture: gaps.architecture ? gaps.architecture.match : 0
+        vision: gaps.vision ? gaps.vision.match : null,
+        prd: gaps.prd ? gaps.prd.match : null,
+        dbb: gaps.dbb ? gaps.dbb.match : null,
+        architecture: gaps.architecture ? gaps.architecture.match : null
       }
     });
   }

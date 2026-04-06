@@ -15,7 +15,9 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   teamConfig = config;
   
   // 显示 workflow 名称
-  if (config.name) {
+  if (config._workflow) {
+    document.getElementById('workflow-name').textContent = 'Workflow: ' + config._workflow;
+  } else if (config.name) {
     document.getElementById('workflow-name').textContent = config.name;
   } else if (config.workflow && config.workflow.name) {
     document.getElementById('workflow-name').textContent = config.workflow.name;
@@ -133,7 +135,39 @@ document.getElementById('tab-bar').addEventListener('click', function(e) {
   if (pane) pane.classList.add('active');
 });
 
-// --- Right Tab Switching ---
+// ====== LOGS VIEW ======
+function renderLogs(events) {
+  var el = document.getElementById('rpane-logs');
+  if (!el) return;
+  if (!events || events.length === 0) {
+    el.innerHTML = '<div style="color:#888;font-size:11px;padding:8px;font-family:monospace;">No events yet.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = events.length - 1; i >= 0; i--) {
+    var ev = events[i];
+    var type = ev.event || ev.type || '';
+    var typeClass = type === 'error' ? 'error' : type === 'agent_complete' ? 'agent_complete' : type === 'agent_start' ? 'agent_start' : '';
+    var time = ev.time ? formatTime(ev.time) : '';
+    var agent = escapeHtml(ev.agent || ev.source || '—');
+    var details = escapeHtml(ev.details || ev.message || type);
+    html += '<div class="log-entry ' + typeClass + '">';
+    html += '<span class="log-time">' + time + '</span>';
+    html += '<span class="log-agent">' + agent + '</span>';
+    html += '<span class="log-details">' + details + '</span>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function refreshLogs() {
+  if (activeRightTab !== 'logs') return;
+  fetch('/events/recent?limit=200').then(function(r) { return r.json(); }).then(renderLogs).catch(function() {});
+}
+
+setInterval(refreshLogs, 10000);
+
+// --- Right Tab Switching (with logs support) ---
 document.getElementById('right-tab-bar').addEventListener('click', function(e) {
   var tab = e.target.closest('.right-tab');
   if (!tab) return;
@@ -145,6 +179,7 @@ document.getElementById('right-tab-bar').addEventListener('click', function(e) {
   tab.classList.add('active');
   var pane = document.getElementById('rpane-' + tabName);
   if (pane) pane.classList.add('active');
+  if (tabName === 'logs') refreshLogs();
 });
 
 // --- Mobile Tab Switching ---
@@ -355,7 +390,7 @@ async function renderComponent(pane, comp, gaps) {
     }
     
     // 添加原文内容
-    html += marked.parse(docData.content || '');
+    html += AgenticRender.render(docData.content || '');
     container.innerHTML = html;
     pane.appendChild(container);
   }
@@ -388,19 +423,19 @@ function renderTopBar(status, agents) {
 // --- Tab match badges ---
 function updateTabMatches(status, gaps) {
   var matchData = status.match || {};
-  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb || 0, arch: matchData.architecture };
+  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb, arch: matchData.architecture };
 
   Object.keys(tabs).forEach(function(key) {
-    var val = tabs[key] || 0;
-    var colorClass = val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
+    var val = tabs[key];
+    var hasData = val != null;
+    var display = hasData ? val + '%' : '—';
+    var colorClass = !hasData ? '' : val > 80 ? 'green' : val > 50 ? 'yellow' : 'red';
 
-    // Desktop tab
     var el = document.getElementById('tab-match-' + key);
-    if (el) { el.textContent = val + '%'; el.className = 'tab-match ' + colorClass; }
+    if (el) { el.textContent = display; el.className = 'tab-match ' + colorClass; }
 
-    // Mobile tab
     var mel = document.getElementById('m-tab-match-' + key);
-    if (mel) { mel.textContent = val + '%'; mel.className = 'tab-match ' + colorClass; }
+    if (mel) { mel.textContent = display; mel.className = 'tab-match ' + colorClass; }
   });
 }
 
@@ -779,7 +814,7 @@ function renderDoc(docId, docData, gaps) {
   
   var html = renderMatchDisplay(docName + ' Match', match);
   html += renderGapsList(gapsList);
-  if (docData.content) html += '<div class="md-content">' + marked.parse(docData.content) + '</div>';
+  if (docData.content) html += '<div class="md-content">' + AgenticRender.render(docData.content) + '</div>';
   
   var pane = document.getElementById('pane-' + docId);
   if (pane) pane.innerHTML = html;
@@ -787,8 +822,9 @@ function renderDoc(docId, docData, gaps) {
   // Update tab badge
   var badge = document.getElementById('tab-match-' + docId);
   if (badge) {
-    badge.textContent = match + '%';
-    badge.className = 'tab-match ' + (match >= 80 ? 'green' : match >= 50 ? 'yellow' : 'red');
+    var hasMatch = match != null;
+    badge.textContent = hasMatch ? match + '%' : '—';
+    badge.className = 'tab-match ' + (!hasMatch ? '' : match >= 80 ? 'green' : match >= 50 ? 'yellow' : 'red');
   }
 }
 
@@ -797,6 +833,11 @@ function renderDoc(docId, docData, gaps) {
 
 // --- Shared Render Helpers ---
 function renderMatchDisplay(label, value) {
+  if (value == null) {
+    return '<div class="match-display">' +
+      '<div class="match-label">' + label + '</div>' +
+      '<div class="match-number" style="color:#888">—</div></div>';
+  }
   var colorClass = value > 80 ? 'green' : value > 50 ? 'yellow' : 'red';
   return '<div class="match-display">' +
     '<div class="match-label">' + label + '</div>' +
