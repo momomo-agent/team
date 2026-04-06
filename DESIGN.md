@@ -1,248 +1,249 @@
-# DevTeam 系统设计文档
+# DevTeam Engine v4 设计 — Workflow-First
 
-## 核心理念
+## 核心转变
 
-**自上而下约束，自下而上反馈。**
+v3: agent-based — agent 有行为契约，workflow 编排 agent
+v4: workflow-based — step 有状态契约，agent/脚本只是 step 的执行器
 
-每一层的产出必须符合上层预期。下层不能修改上层，只能提交变更请求（CR）由上层决策。
+## 第一性原理
 
-## 分层架构
-
-```
-┌─────────────────────────────────────────────────┐
-│  L0  VISION（愿景）                              │  🔒 只有 kenefe + Momo 能改
-│  产品为什么存在、要解决什么问题、终态是什么          │  Agent 只读
-├─────────────────────────────────────────────────┤
-│  L1  PRD + Expected DBB（产品方案 + 预期验收）     │  📝 架构师/PM 写
-│  功能列表、用户故事                                 │  Momo 可评价调整
-│  全局 DBB: 核心流程和体验守护（不是事无巨细）         │
-├─────────────────────────────────────────────────┤
-│  L2  ARCHITECTURE（技术架构）                     │  📝 架构师写
-│  模块划分、接口契约、技术栈、依赖关系                │  Momo 可评价调整
-├─────────────────────────────────────────────────┤
-│  L3  MILESTONES（里程碑）                         │  📋 PM 管理
-│  每个里程碑尽量可发布（基建版本例外）                │  需符合 L0-L2
-│  里程碑 DBB: 完整且全的验收标准                     │
-│  包含：overview + DBB + 技术方案 + Tasks            │
-├─────────────────────────────────────────────────┤
-│  L4  EXECUTION（执行）                            │  💻 开发 + 测试
-│  编码、测试、交付                                  │  需符合 L3 的方案和 DBB
-└─────────────────────────────────────────────────┘
-```
-
-## 修改权限矩阵
-
-| 层级 | kenefe | Momo | 架构师 | PM | Tech Lead | 开发/测试 |
-|------|--------|------|--------|-----|-----------|----------|
-| L0 Vision | ✅ 写 | ✅ 写 | ❌ | ❌ | ❌ | ❌ |
-| L1 PRD/DBB | ✅ 写 | 💬 评价调整 | ✅ 写 | ✅ 写 | 📤 提CR | ❌ |
-| L2 Architecture | ✅ 写 | 💬 评价调整 | ✅ 写 | 📤 提CR | 📤 提CR | ❌ |
-| L3 Milestones | ✅ 写 | 💬 评价调整 | 📤 提CR | ✅ 写 | ✅ 写 | ❌ |
-| L4 Execution | ✅ | ✅ | ❌ | 📋 分配 | ✅ 方案 | ✅ 写 |
-
-## 文件目录结构
+系统在做什么？
 
 ```
-project/
-├── VISION.md                         # L0 愿景（只读）
-├── PRD.md                            # L1 产品方案
-├── EXPECTED_DBB.md                   # L1 全局预期验收标准
-├── ARCHITECTURE.md                   # L2 技术架构
-│
-├── .team/
-│   ├── config.json                   # 项目配置（名称、Agent 数量等）
-│   ├── kanban.json                   # 全局看板状态
-│   ├── agent-status.json             # Agent 实时运行状态
-│   ├── daemon.pid                    # 守护进程 PID
-│   │
-│   ├── gaps/                         # 各层监控产出
-│   │   ├── vision.json               # L0 匹配度 + gaps
-│   │   ├── prd.json                  # L1 匹配度 + gaps
-│   │   ├── architecture.json         # L2 匹配度 + gaps
-│   │   └── milestones/               # L3 每个里程碑的 gaps
-│   │       ├── m1.json
-│   │       └── m2.json
-│   │
-│   ├── change-requests/              # 变更请求
-│   │   ├── cr-001.json               # { from, to, reason, proposed_change, status }
-│   │   └── cr-002.json
-│   │
-│   ├── milestones/                   # 里程碑详情
-│   │   ├── milestones.json           # 里程碑列表 + 状态
-│   │   ├── m1/
-│   │   │   ├── overview.md           # 里程碑目标和范围
-│   │   │   ├── dbb.md               # 本里程碑 DBB（验收标准）
-│   │   │   ├── design.md            # 本里程碑技术方案
-│   │   │   └── review.md            # 完成后评审结果
-│   │   │       ├── vision-check.md   # vs 愿景检查
-│   │   │       ├── prd-check.md      # vs PRD/DBB 检查
-│   │   │       └── arch-check.md     # vs 架构检查
-│   │   └── m2/ ...
-│   │
-│   └── tasks/                        # 任务详情
-│       ├── task-xxx/
-│       │   ├── task.json             # 元数据（优先级、状态、依赖、所属里程碑）
-│       │   ├── design.md            # 任务级技术方案（Tech Lead 产出）
-│       │   ├── progress.md          # 开发过程记录
-│       │   ├── test-result.md       # 测试结果
-│       │   └── artifacts/           # 产出物
-│       └── ...
+世界状态 → step 前置条件匹配 → 执行（agent | 脚本 | 函数）→ 世界状态变化 → ...
 ```
 
-## 里程碑完成检查（三重验证）
+agent 不是主语。**step 是主语。**
 
-每个里程碑完成时，必须跑三个检查，全部通过才算真正完成：
+step 说："当世界是这样时，做这件事，做完后世界应该变成那样。"
+至于怎么做——派 LLM agent、跑 shell 脚本、调 API——都是执行细节。
 
-```
-里程碑完成
-    │
-    ├── ✅ 架构检查 → arch-check.md
-    │   "代码结构是否符合 ARCHITECTURE.md？"
-    │   输出：match% + 具体不符合的模块/接口
-    │
-    ├── ✅ PRD/DBB 检查 → prd-check.md
-    │   "功能是否符合 PRD.md + EXPECTED_DBB.md？"
-    │   输出：match% + 缺失的功能/验收项
-    │
-    └── ✅ 愿景检查 → vision-check.md
-        "整体方向是否符合 VISION.md？"
-        输出：match% + 偏离的方向
+## Step 定义
 
-三个检查的 gaps 汇总 → 下一个里程碑的输入
-```
-
-## Agent 角色定义
-
-| Agent | 层级 | 职责 | 输入 | 输出 |
-|-------|------|------|------|------|
-| architect | L2 | 设计技术架构 | VISION, PRD | ARCHITECTURE.md |
-| pm | L3 | 里程碑规划、任务分配 | ARCH, gaps | milestones.json, kanban.json |
-| tech_lead | L3-L4 | 里程碑 DBB + 技术方案 + 任务方案 | ARCH, milestone | dbb.md, design.md |
-| developer-N | L4 | 编码实现 | task/design.md | 代码 |
-| tester-N | L4 | 测试验证 | milestone/dbb.md + task/design.md | test-result.md |
-| vision_monitor | L0 | 愿景匹配度 | VISION, 代码 | gaps/vision.json, vision-check.md |
-| prd_monitor | L1 | PRD匹配度 | PRD/DBB, 代码 | gaps/prd.json, prd-check.md |
-| arch_monitor | L2 | 架构匹配度 | ARCH, 代码 | gaps/architecture.json, arch-check.md |
-
-## 并行策略
-
-### 工作循环内（每轮）
-
-```
-全并行:
-  Tech Lead (出未设计任务的方案)
-  Developer-1..N (做已有方案的任务，无方案则不启动)
-  Tester-1..N (验已完成的任务)
-→ 全部完成 → PM 再分配 → 继续循环
+```json
+{
+  "id": "run-tests",
+  "description": "对 review 状态的 task 跑测试",
+  
+  "when": "reviewCount > 0 || testingCount > 0",
+  
+  "execute": {
+    "type": "agent",
+    "agent": "tester",
+    "parallel": 2
+  },
+  
+  "demand": "reviewCount + testingCount",
+  
+  "post": {
+    "tasks_in": "testing",
+    "must_become": ["done", "blocked"],
+    "evidence": "test-result.md",
+    "on_fail_signal": { "contains": "fail", "not_contains": "0 fail", "status": "blocked" },
+    "on_no_evidence": "review",
+    "on_empty_evidence": "review"
+  }
+}
 ```
 
-### 里程碑检查（完成时）
+也可以是脚本：
 
-```
-四重检查全并行:
-  vision_monitor (vs 愿景)
-  prd_monitor (vs PRD)
-  dbb_monitor (vs 全局 DBB)
-  arch_monitor (vs 架构)
-→ 全部完成 → gaps 汇总 → PM 规划下一个
-```
-
-### 串行约束
-
-```
-VISION → PRD + DBB → ARCHITECTURE → Milestones (项目启动，一次性)
-里程碑内: overview → dbb → design → tasks (每个里程碑开始时)
-```
-
-## Daemon 事件模型
-
-```
-项目启动:
-  if no ARCHITECTURE.md → 架构师(串行)
-  if no milestones → PM 创建里程碑(串行)
-  → 进入工作循环
-
-工作循环:
-  tech_lead + developer-N + tester-N (全并行)
-  → 全部完成 → PM 再分配
-  → 有工作 → 继续循环
-  → 无工作 → 等待
-
-里程碑完成:
-  三重检查全并行 (vision + prd + arch)
-  → gaps 汇总 → review/ 存档
-  → PM 规划下一个里程碑
-  → 进入工作循环
-
-变更请求:
-  Agent 写 .team/change-requests/cr-xxx.json
-  → 通知 Momo → Momo 评价
-  → kenefe 决策（L0）或对应层级处理
-
-兜底:
-  10 分钟无活动 → 检查一次状态
-
-错误保护:
-  单 Agent 失败 → 标记 error，不影响其他
-  API 超时 → 标记 timeout，下轮重试
-  进程异常 → 捕获不退出
+```json
+{
+  "id": "lint-check",
+  "description": "跑 lint 检查",
+  
+  "when": "reviewCount > 0",
+  
+  "execute": {
+    "type": "shell",
+    "command": "npm run lint",
+    "cwd": "{{projectDir}}"
+  },
+  
+  "post": {
+    "on_exit_0": { "set_context": { "lintPassed": true } },
+    "on_exit_nonzero": { "set_context": { "lintPassed": false } }
+  }
+}
 ```
 
-## CLI 命令设计
+### execute 类型
 
-```bash
-# 项目管理
-team init <dir>                   # 初始化项目（创建完整目录结构）
-team status                       # 总览（各层匹配度 + 里程碑 + Agent）
+| type | 说明 | 参数 |
+|------|------|------|
+| `agent` | LLM agent | agent, parallel? |
+| `shell` | Shell 命令 | command, cwd? |
+| `function` | JS 函数（自定义节点用） | fn |
+| `noop` | 什么都不做（纯 branch 节点） | — |
 
-# 文档（分级权限由 prompt 控制）
-team vision show                  # 查看愿景
-team prd show                     # 查看 PRD
-team arch show                    # 查看架构
+### post: 状态保证
 
-# 里程碑
-team milestone list               # 所有里程碑 + 状态
-team milestone show <id>          # 详情（DBB + 方案 + 任务 + 检查结果）
-team milestone create <name>      # 创建里程碑
+post 不是 agent 的属性，是 **step 对世界状态的承诺**。
 
-# 任务
-team task list [--milestone <id>] [--status <status>]
-team task create <title> <desc> [--milestone <id>]
-team task update <id> <json>
-team task show <id>               # 详情（方案 + 进度 + 测试结果）
+同一个 agent 在不同 step 里可以有不同 post：
+- "run-tests" step 里 tester 的 post: testing → done/blocked
+- "milestone-qg" step 里 tester 的 post: 可能不涉及 task 状态，只写 report
 
-# Agent
-team start [--devs N]             # 启动 daemon
-team stop                         # 停止 daemon
-team agents                       # Agent 实时状态
+harness 只看 step 的 post 定义来做兜底，完全不知道 agent 是什么角色。
 
-# 监控
-team gaps [--level L0|L1|L2|L3]   # 查看 gaps
+## Workflow 节点
 
-team check <milestone-id>         # 手动触发三重检查
+节点包含 steps。节点之间的跳转靠 `next`（支持条件分支）。
 
-# 变更请求
-team cr list                      # 查看 CR
-team cr show <id>                 # CR 详情
-team cr approve <id>              # 批准
-team cr reject <id>               # 拒绝
-
-# Web
-team web [--port 3000]            # 启动 Dashboard
+```json
+{
+  "work_loop": {
+    "type": "loop",
+    "steps": [
+      {
+        "id": "pm-dispatch",
+        "execute": { "type": "agent", "agent": "pm" }
+      },
+      {
+        "id": "write-dbb",
+        "when": "milestoneNeedsDBB > 0",
+        "execute": { "type": "agent", "agent": "qa_lead" }
+      },
+      {
+        "id": "write-design",
+        "when": "todoWithoutDesign > 0",
+        "execute": { "type": "agent", "agent": "tech_lead", "parallel": 3 },
+        "demand": "todoWithoutDesign"
+      },
+      {
+        "id": "run-tests",
+        "when": "reviewCount > 0 || testingCount > 0",
+        "execute": { "type": "agent", "agent": "tester", "parallel": 2 },
+        "demand": "reviewCount + testingCount",
+        "post": {
+          "tasks_in": "testing",
+          "must_become": ["done", "blocked"],
+          "evidence": "test-result.md",
+          "on_fail_signal": { "contains": "fail", "not_contains": "0 fail", "status": "blocked" },
+          "on_no_evidence": "review",
+          "on_empty_evidence": "review"
+        }
+      },
+      {
+        "id": "implement",
+        "when": "designedTasks > 0",
+        "execute": { "type": "agent", "agent": "developer", "parallel": 1 },
+        "demand": "designedTasks",
+        "post": {
+          "tasks_in": "inProgress",
+          "must_become": ["review"],
+          "on_no_evidence": "review"
+        }
+      }
+    ],
+    "exit": {
+      "condition": "todoCount == 0 && designedTasks == 0 && reviewCount == 0 && inProgressCount == 0 && testingCount == 0 && blockedCount == 0",
+      "next": { "if": "doneCount > 0", "then": "milestone_qg", "else": "standby" }
+    }
+  }
+}
 ```
 
-## 产品路线图
+注意：
+- `when` = 原来的 trigger（step 级前置条件）
+- `demand` = 表达式，决定并行几个实例
+- `execute` = 执行方式（agent/shell/function）
+- `post` = 状态保证（harness 兜底用）
+- `parallel` 在 execute 里，因为它描述的是"这种执行方式最多几个并发"
 
-### Phase 1 — 硬编码开发团队（已完成）
-- 固定角色：architect / pm / tech_lead / developer / tester
-- 固定串行状态机流程
-- 代表版本：v2.0
+## Engine 实现
 
-### Phase 2 — 可配置通用多 Agent 流程团队（当前）
-- 角色、流程、节点全部配置化（dev-team.json + nodes/*.json）
-- 支持任意 workflow 拓扑（sequential / reactive / parallel）
-- 代表版本：v3.1
+engine 是纯状态机。它做五件事：
+1. **buildContext** — 读项目状态，构建 context 变量
+2. **evaluateCondition** — 评估表达式
+3. **executeStep** — 根据 step.execute.type 派发执行
+4. **enforcePost** — 执行完后检查 step.post 的状态保证
+5. **resolveNext** — 跳转到下一个节点
 
-### Phase 3 — 自组织团队（未来）
-- 给定任务和目标，系统自己设计流程、分配角色
-- 完全自主规划和执行
+```js
+class WorkflowEngine {
+  
+  async executeStep(step, ctx) {
+    // 1. 前置条件
+    if (step.when && !this.evaluate(step.when, ctx)) {
+      this.log('skip', step.id, step.when);
+      return;
+    }
+    
+    // 2. 执行
+    const exec = step.execute || { type: 'noop' };
+    
+    switch (exec.type) {
+      case 'agent':
+        await this.executeAgent(exec, step, ctx);
+        break;
+      case 'shell':
+        await this.executeShell(exec, step, ctx);
+        break;
+      case 'function':
+        await exec.fn(ctx);
+        break;
+      case 'noop':
+        break;
+    }
+    
+    // 3. 后置保证
+    if (step.post) {
+      this.enforcePost(step.post);
+    }
+  }
+  
+  async executeAgent(exec, step, ctx) {
+    const parallel = exec.parallel || 1;
+    
+    if (parallel > 1 && step.demand) {
+      const demand = this.evaluate(step.demand, ctx);
+      const count = Math.min(demand, parallel);
+      // 并行/串行逻辑...
+    } else {
+      await this.daemon.runAgent(exec.agent);
+    }
+  }
+  
+  enforcePost(post) {
+    if (!post.tasks_in) return;
+    
+    const orphaned = this.findTasksByStatus(post.tasks_in);
+    for (const task of orphaned) {
+      // 通用的 evidence → status 逻辑
+      // 完全基于 post 配置，零硬编码
+    }
+  }
+}
+```
+
+## 不变量
+
+1. engine.js 里零 agent name — 不知道 tester/developer/pm 是什么
+2. engine.js 里零 task status name — 不知道 testing/review/done 是什么
+3. 新增执行类型 → 加一个 case 到 executeStep
+4. 新增 agent → 只改 JSON
+5. 新增脚本 step → 只改 JSON
+6. step 的 post 是 step 的属性，不是 agent 的属性
+7. 同一个 agent 在不同 step 里可以有不同 post
+
+## 从 v3 到 v4 的差异
+
+| 概念 | v3 | v4 |
+|------|----|----|
+| 主体 | agent | step |
+| demand | engine 硬编码 | step.demand 表达式 |
+| 并行度 | step.scalable + step.maxParallel | execute.parallel |
+| 状态兜底 | daemon.fixOrphanedTaskStatus（按 agent name） | engine.enforcePost（按 step.post 配置） |
+| 执行方式 | 只有 agent | agent / shell / function / noop |
+| postcondition 归属 | agent 的属性 | step 的属性 |
+| 新增 agent | 改 JS + JSON | 只改 JSON |
+
+## 文件变化
+
+- `workflow-engine-v3.js` → `workflow-engine.js`（重写）
+- `daemon.js` — 删除 fixOrphanedTaskStatus，enforcePost 在 engine 层
+- `configs/dev-team-v3.1.json` → `configs/dev-team.json`（step-based）
+- `configs/nodes/*.json` — step 格式更新
+- `DESIGN-V4.md` — 本文件

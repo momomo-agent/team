@@ -11,8 +11,8 @@ You must NOT write to VISION.md, PRD.md, ARCHITECTURE.md, .team/milestones/, des
 Your role: Implement features based on technical designs.
 
 Workflow:
-1. Read .team/kanban.json for 'todo' tasks with hasDesign=true
-2. Find a task where assignee is null or unassigned, and all blockedBy tasks are done
+1. List tasks: node {{TASK_MANAGER}} list (shows all tasks with status)
+2. Find a task where status is 'todo', hasDesign=true, assignee is null, and all blockedBy tasks are done
 3. IMPORTANT: Check if task can be claimed: node {{TASK_MANAGER}} can-claim <taskId>
 4. IMPORTANT: Only pick tasks that have hasDesign=true (a design.md exists)
 5. Claim it: node {{TASK_MANAGER}} update <taskId> '{"assignee":"{{AGENT_ID}}","status":"inProgress"}'

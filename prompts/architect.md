@@ -7,8 +7,11 @@ Your role: Design system architecture based on the product vision.
 Workflow:
 1. Read VISION.md to understand the product goals
 2. Read PRD.md and EXPECTED_DBB.md for product requirements
-3. If ARCHITECTURE.md already exists and has substantial content (>100 lines), do NOT overwrite it. Only suggest improvements via a change request (write to .team/change-requests/cr-<timestamp>.json).
-4. If ARCHITECTURE.md is empty or missing, create it with:
+3. Read .team/gaps/vision.json, .team/gaps/prd.json, .team/gaps/dbb.json (if they exist) to understand what gaps the monitors have identified — your architecture MUST address these gaps
+{{GAPS_SUMMARY}}
+{{EXISTING_TASKS}}
+4. If ARCHITECTURE.md already exists and has substantial content (>100 lines), do NOT overwrite it. Only suggest improvements via a change request (write to .team/change-requests/cr-<timestamp>.json) that specifically addresses the identified gaps.
+5. If ARCHITECTURE.md is empty or missing, create it with:
    - Mermaid diagram showing modules and relationships
    - Module list with responsibilities, file paths, and function signatures
    - Data flow between modules

@@ -1,0 +1,216 @@
+{
+  "version": "3.1",
+  "description": "AI 开发团队 - 多组件支持",
+  "dashboard": {
+    "left": [
+      {
+        "title": "愿景",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "VISION.md",
+            "gapKey": "vision",
+            "label": "Vision"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/vision.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "产品需求",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "PRD.md",
+            "gapKey": "prd",
+            "label": "PRD"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/prd.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "预期验收",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "EXPECTED_DBB.md",
+            "gapKey": "dbb",
+            "label": "DBB"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/dbb.json",
+          "field": "match"
+        }
+      },
+      {
+        "title": "技术架构",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "ARCHITECTURE.md",
+            "gapKey": "architecture",
+            "label": "Architecture"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/architecture.json",
+          "field": "match"
+        }
+      }
+    ],
+    "right": [
+      {
+        "title": "Pipeline",
+        "components": [
+          {
+            "component": "PipelineView",
+            "path": ".team/milestones/milestones.json"
+          }
+        ]
+      },
+      {
+        "title": "Kanban",
+        "components": [
+          {
+            "component": "KanbanView",
+            "path": ".team/kanban.json"
+          }
+        ]
+      },
+      {
+        "title": "Milestones",
+        "components": [
+          {
+            "component": "MilestonesView",
+            "path": ".team/milestones/milestones.json"
+          }
+        ]
+      }
+    ]
+  },
+  "workflow": {
+    "entry": "startup",
+    "context": {
+      "todoCount": "tasks.byStatus('todo').length",
+      "designedTasks": "tasks.byStatus('todo').filter(t => t.hasDesign).length",
+      "todoWithoutDesign": "tasks.byStatus('todo').filter(t => !t.hasDesign).length",
+      "reviewCount": "tasks.byStatus('review').length",
+      "doneCount": "tasks.byStatus('done').length",
+      "inProgressCount": "tasks.byStatus('inProgress').length",
+      "testingCount": "tasks.byStatus('testing').length",
+      "blockedCount": "tasks.byStatus('blocked').length",
+      "milestoneNeedsDBB": "milestones.active() && !files.exists(milestones.active().path + '/dbb.md') ? 1 : 0",
+      "archNeedsUpdate": "files.exists('ARCHITECTURE.md') && gaps.read('architecture').match < 70 ? 1 : 0",
+      "goalMet": "gaps.read('vision').match >= 90 && gaps.read('prd').match >= 90 ? 1 : 0"
+    },
+    "nodes": {
+      "startup": "nodes/startup.json",
+      "monitor": "nodes/monitor.json",
+      "pm_decide": "nodes/pm-decide.json",
+      "work_loop": "nodes/work-loop.json",
+      "milestone_qg": "nodes/milestone-qg.json",
+      "standby": "nodes/standby.json",
+      "complete": "nodes/complete.json"
+    }
+  },
+  "agents": {
+    "architect": {
+      "prompt": "prompts/architect.md",
+      "model": "claude-sonnet-4",
+      "description": "设计系统架构",
+      "onFail": {
+        "maxRetries": 3,
+        "fallbackShell": "echo \"# Minimal Architecture\" > ARCHITECTURE.md"
+      }
+    },
+    "vision_monitor": {
+      "prompt": "prompts/vision_monitor.md",
+      "model": "claude-sonnet-4",
+      "description": "评估愿景匹配度"
+    },
+    "prd_monitor": {
+      "prompt": "prompts/prd_monitor.md",
+      "model": "claude-sonnet-4",
+      "description": "评估PRD匹配度"
+    },
+    "dbb_monitor": {
+      "prompt": "prompts/dbb_monitor.md",
+      "model": "claude-sonnet-4",
+      "description": "评估DBB匹配度"
+    },
+    "arch_monitor": {
+      "prompt": "prompts/arch_monitor.md",
+      "model": "claude-sonnet-4",
+      "description": "评估架构匹配度"
+    },
+    "pm": {
+      "prompt": "prompts/pm.md",
+      "model": "claude-sonnet-4",
+      "description": "管理任务和里程碑"
+    },
+    "qa_lead": {
+      "prompt": "prompts/qa_lead.md",
+      "model": "claude-sonnet-4",
+      "description": "编写验收标准"
+    },
+    "tech_lead": {
+      "prompt": "prompts/tech_lead.md",
+      "model": "claude-sonnet-4",
+      "description": "出技术方案",
+      "onFail": {
+        "maxRetries": 3,
+        "fallbackShell": "echo \"# Minimal Design\" > .team/docs/design.md"
+      }
+    },
+    "developer": {
+      "prompt": "prompts/developer.md",
+      "model": "claude-sonnet-4",
+      "scalable": true,
+      "description": "实现功能",
+      "gitCommit": true,
+      "gitPrefix": "feat"
+    },
+    "tester": {
+      "prompt": "prompts/tester.md",
+      "model": "claude-sonnet-4",
+      "scalable": true,
+      "description": "验证功能",
+      "gitCommit": true,
+      "gitPrefix": "test"
+    }
+  },
+  "docs": {
+    "root": ".team/docs"
+  },
+  "monitor": {
+    "root": ".team/monitor",
+    "agents": [
+      "vision_monitor",
+      "prd_monitor",
+      "dbb_monitor",
+      "arch_monitor"
+    ]
+  },
+  "git": {
+    "commitPerTask": true,
+    "tagPerMilestone": true
+  },
+  "notify": {
+    "webhooks": [],
+    "macos": true
+  },
+  "goal": {
+    "condition": "gaps.read('vision').match >= 90 && gaps.read('prd').match >= 90",
+    "description": "Vision ≥90% + PRD ≥90%"
+  },
+  "requiredFiles": [
+    "VISION.md",
+    "PRD.md"
+  ]
+}

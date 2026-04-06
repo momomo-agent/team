@@ -107,21 +107,30 @@ function init(dirName) {
     fs.mkdirSync(path.join(projectDir, dir), { recursive: true });
   }
 
-  // Load default config and merge with project-specific fields
-  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs/dev-team.json');
+  // Load workflow config (--config <name> or default: dev-team)
+  const workflowArg = process.argv.indexOf('--config');
+  const workflowName = workflowArg !== -1 && process.argv[workflowArg + 1]
+    ? process.argv[workflowArg + 1]
+    : 'dev-team';
+  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs', workflowName, 'config.json');
+  if (!fs.existsSync(defaultConfigPath)) {
+    console.error(`Error: workflow config not found: configs/${workflowName}/config.json`);
+    const available = fs.readdirSync(path.join(DEVTEAM_ROOT, 'configs')).filter(d =>
+      fs.existsSync(path.join(DEVTEAM_ROOT, 'configs', d, 'config.json'))
+    );
+    if (available.length) console.error(`Available: ${available.join(', ')}`);
+    process.exit(1);
+  }
   let defaultConfig = {};
   try { defaultConfig = JSON.parse(fs.readFileSync(defaultConfigPath, 'utf8')); } catch {}
 
   const config = Object.assign({}, defaultConfig, {
+    _workflow: workflowName,
     name: path.basename(projectDir),
     created: new Date().toISOString(),
     devteamVersion: '2.0'
   });
   fs.writeFileSync(path.join(projectDir, '.team/config.json'), JSON.stringify(config, null, 2));
-
-  // Create kanban
-  const kanban = { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [] };
-  fs.writeFileSync(path.join(projectDir, '.team/kanban.json'), JSON.stringify(kanban, null, 2));
 
   // Create milestones index
   fs.writeFileSync(path.join(projectDir, '.team/milestones/milestones.json'), JSON.stringify({ milestones: [] }, null, 2));
@@ -180,8 +189,9 @@ function status() {
     console.log(`    ${icon} ${ms.id} ${ms.name} [${ms.status}] ${ms.progress}% (${ms.doneCount}/${ms.taskCount})`);
   }
 
-  // Kanban summary
-  const kanban = readJSON(path.join(dir, '.team/kanban.json')) || {};
+  // Kanban summary (derived from task.json files)
+  const TaskManager = require('../lib/task-manager');
+  const kanban = new TaskManager(dir).getKanban();
   const total = (kanban.todo || []).length + (kanban.inProgress || []).length +
     (kanban.review || []).length + (kanban.testing || []).length + (kanban.done || []).length;
   const completion = total > 0 ? Math.round(((kanban.done || []).length / total) * 100) : 0;
@@ -652,6 +662,224 @@ function setNestedValue(obj, path, value) {
   }
 }
 
+function flow() {
+  const dir = requireProject();
+  const configPath = path.join(dir, '.team/config.json');
+  const config = readJSON(configPath);
+  if (!config || !config.workflow) {
+    console.error('No workflow config found');
+    return;
+  }
+
+  const configDir = path.join(DEVTEAM_ROOT, 'configs');
+  const nodes = {};
+
+  for (const [name, nodePath] of Object.entries(config.workflow.nodes)) {
+    const full = path.join(configDir, nodePath);
+    if (fs.existsSync(full)) {
+      nodes[name] = JSON.parse(fs.readFileSync(full, 'utf8'));
+    }
+  }
+
+  // Agent color mapping
+  const agentColor = {
+    architect:       { fill: '#1e3a5f', stroke: '#60a5fa' },
+    vision_monitor:  { fill: '#0d2818', stroke: '#4ade80' },
+    prd_monitor:     { fill: '#0d2818', stroke: '#4ade80' },
+    dbb_monitor:     { fill: '#0d2818', stroke: '#4ade80' },
+    arch_monitor:    { fill: '#0d2818', stroke: '#4ade80' },
+    pm:              { fill: '#581c87', stroke: '#c084fc' },
+    qa_lead:         { fill: '#4a1942', stroke: '#e879f9' },
+    tech_lead:       { fill: '#0d2818', stroke: '#4ade80' },
+    developer:       { fill: '#78350f', stroke: '#f59e0b' },
+    tester:          { fill: '#0a1a2e', stroke: '#38bdf8' }
+  };
+  const defaultColor = { fill: '#374151', stroke: '#6b7280' };
+
+  const L = [];  // lines
+  const S = [];  // styles
+  const entry = config.workflow.entry || 'startup';
+
+  L.push('graph TD');
+  L.push(`  START["🚀 启动"] --> _startup_first`);
+  S.push('  style START fill:#16a34a,stroke:#fff,stroke-width:2px,color:#fff,font-size:18px');
+
+  // Track generated node ids
+  let idCounter = 0;
+  const nid = (prefix) => `${prefix}_${++idCounter}`;
+
+  // Render each workflow node
+  for (const [name, node] of Object.entries(nodes)) {
+    if (name === 'standby') {
+      // Simple wait node
+      L.push(`  ${name}["⏸ 待机"]`);
+      if (node.next) L.push(`  ${name} -->|"new_task"| _${node.next}_first`);
+      S.push(`  style ${name} fill:#374151,stroke:#6b7280,stroke-width:2px,color:#fff,font-size:14px`);
+      continue;
+    }
+
+    const steps = node.steps || [];
+
+    if (node.type === 'loop') {
+      // Loop node: render as PM dispatch center with fan-out
+      const pmId = `${name}_pm`;
+      L.push(`  ${pmId}["PM 调度中心<br/>看 kanban + gaps 派资源"]`);
+      S.push(`  style ${pmId} fill:#581c87,stroke:#c084fc,stroke-width:3px,color:#fff,font-size:16px`);
+
+      // Link entry
+      L.push(`  _${name}_first --> ${pmId}`);
+
+      // Fan out to each agent type in steps
+      for (const step of steps) {
+        if (!step.agents || !step.agents.length) continue;
+        const agent = step.agents[0];
+        if (agent === 'pm') continue; // PM is the dispatcher itself
+
+        const stepId = nid(agent);
+        let label = agent.replace(/_/g, ' ');
+        // Capitalize
+        label = label.split(' ').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+
+        let detail = label;
+        if (step.scalable && step.maxParallel > 1) detail += `<br/>(可并行 max ${step.maxParallel})`;
+        else if (step.scalable && step.maxParallel === 1) detail += `<br/>(串行)`;
+
+        L.push(`  ${stepId}["${detail}"]`);
+
+        const trigger = step.trigger || '';
+        const triggerLabel = trigger.replace(/ > 0/, '').replace(/Count/, '');
+        L.push(`  ${pmId} -->|"${triggerLabel}"| ${stepId}`);
+        L.push(`  ${stepId} -->|"done"| ${pmId}`);
+
+        const c = agentColor[agent] || defaultColor;
+        S.push(`  style ${stepId} fill:${c.fill},stroke:${c.stroke},stroke-width:2px,color:#fff,font-size:14px`);
+      }
+
+      // Exit edges
+      if (node.exit) {
+        if (node.exit.condition && node.exit.next) {
+          const next = node.exit.next;
+          if (typeof next === 'string') {
+            L.push(`  ${pmId} -->|"全部 Done"| _${next}_first`);
+          } else if (next.then && next.else) {
+            L.push(`  ${pmId} -->|"全部 Done"| _${next.then}_first`);
+            L.push(`  ${pmId} -->|"无事可做"| _${next.else}_first`);
+          }
+        }
+        if (node.exit.pass) L.push(`  ${pmId} -->|"pass"| _${node.exit.pass}_first`);
+        if (node.exit.fail) L.push(`  ${pmId} -->|"fail"| _${node.exit.fail}_first`);
+      }
+
+    } else if (steps.length > 0) {
+      // Sequence node: check if it has parallel monitors
+      const parallelStep = steps.find(s => s.parallel && s.agents && s.agents.length > 1);
+
+      if (parallelStep) {
+        // Render as subgraph with parallel agents
+        const sgId = `${name}_sg`;
+        const desc = node.description || name;
+        L.push(`  subgraph ${sgId}["👁 ${desc}"]`);
+        L.push(`    direction LR`);
+        const agentIds = [];
+        for (const a of parallelStep.agents) {
+          const aId = nid(a);
+          agentIds.push(aId);
+          const aLabel = a.replace(/_monitor/, '').replace(/_/g, ' ');
+          L.push(`    ${aId}["${aLabel}<br/>Match%"]`);
+          const c = agentColor[a] || defaultColor;
+          S.push(`  style ${aId} fill:${c.fill},stroke:${c.stroke},stroke-width:2px,color:#fff,font-size:14px`);
+        }
+        L.push(`  end`);
+        S.push(`  style ${sgId} fill:#001a0a,stroke:#4ade80,stroke-width:2px,color:#fff`);
+
+        // Entry
+        L.push(`  _${name}_first --> ${agentIds[0]}`);
+        // For visual, connect entry to all
+        if (agentIds.length > 1) {
+          L.push(`  _${name}_first --> ${agentIds.join(' & ')}`);
+        }
+
+        // Exit: connect all to next
+        if (node.next) {
+          L.push(`  ${agentIds.join(' & ')} --> _${node.next}_first`);
+        }
+
+        // Non-parallel steps (like PM after monitors)
+        for (const s of steps) {
+          if (s === parallelStep) continue;
+          // These get folded into the next node
+        }
+
+      } else {
+        // Simple sequence: chain steps
+        let prevId = `_${name}_first`;
+        for (let i = 0; i < steps.length; i++) {
+          const step = steps[i];
+          if (!step.agents || !step.agents.length) continue;
+          const agent = step.agents[0];
+          const stepId = nid(agent);
+          let label = step.description || agent;
+          L.push(`  ${stepId}["${label}"]`);
+          L.push(`  ${prevId} --> ${stepId}`);
+          const c = agentColor[agent] || defaultColor;
+          S.push(`  style ${stepId} fill:${c.fill},stroke:${c.stroke},stroke-width:2px,color:#fff,font-size:14px`);
+          prevId = stepId;
+        }
+        // Exit
+        if (node.next) L.push(`  ${prevId} --> _${node.next}_first`);
+        if (node.exit) {
+          if (node.exit.pass) L.push(`  ${prevId} -->|"通过"| _${node.exit.pass}_first`);
+          if (node.exit.fail) L.push(`  ${prevId} -->|"不通过"| _${node.exit.fail}_first`);
+        }
+      }
+    }
+  }
+
+  // Add done node
+  L.push(`  DONE["✅ 项目完成"]`);
+  S.push(`  style DONE fill:#16a34a,stroke:#fff,stroke-width:3px,color:#fff,font-size:20px`);
+
+  // Clean up: replace _xxx_first with actual first node of that section
+  // For simplicity, make them invisible connectors
+  const allIds = new Set();
+  for (const line of L) {
+    const m = line.match(/_(\w+)_first/g);
+    if (m) m.forEach(id => allIds.add(id));
+  }
+  // Insert invisible connector nodes at position 2
+  const connectors = [];
+  for (const id of allIds) {
+    connectors.push(`  ${id}((" "))`);
+    S.push(`  style ${id} fill:transparent,stroke:none,color:transparent,font-size:1px`);
+  }
+  L.splice(2, 0, ...connectors);
+
+  const mermaid = L.join('\n') + '\n\n' + S.join('\n');
+
+  const wantPng = process.argv.includes('--png') || process.argv.includes('--open');
+  const wantOpen = process.argv.includes('--open');
+
+  if (wantPng) {
+    const mmdPath = path.join(dir, '.team/flow.mmd');
+    const pngPath = path.join(dir, '.team/flow.png');
+    fs.writeFileSync(mmdPath, mermaid);
+
+    const { execSync } = require('child_process');
+    try {
+      execSync(`bmm -i "${mmdPath}" -o "${pngPath}" --theme github-dark -s 3 -w 1800`, { stdio: 'pipe' });
+      console.log(`Flow diagram: ${pngPath}`);
+      if (wantOpen) {
+        execSync(`open "${pngPath}"`);
+      }
+    } catch (e) {
+      console.error('Failed to render PNG (bmm not found?)');
+      console.log(mermaid);
+    }
+  } else {
+    console.log(mermaid);
+  }
+}
+
 function web() {
   const dir = requireProject();
   const serverPath = path.join(DEVTEAM_ROOT, 'web/server.js');
@@ -750,10 +978,26 @@ switch (command) {
     web();
     break;
 
+  case 'flow':
+    flow();
+    break;
+
+  case 'auto': {
+    const autoGoal = args.slice(1).filter(a => a !== '--project' && args[args.indexOf(a) - 1] !== '--project').join(' ');
+    if (!autoGoal) {
+      console.log('Usage: team auto "<goal>" [--project /path]');
+      process.exit(1);
+    }
+    require('./workflow-gen.js');
+    break;
+  }
+
   default:
     console.log('DevTeam CLI v2.0\n');
     console.log('Project:');
     console.log('  team init <dir>                   Initialize project');
+    console.log('  team init <dir> --config <name>   Initialize with specific workflow');
+    console.log('  team auto "<goal>"                Generate workflow from goal (Phase 3)');
     console.log('  team status                       Project overview');
     console.log('');
     console.log('Documents:');
@@ -794,4 +1038,7 @@ switch (command) {
     console.log('');
     console.log('Dashboard:');
     console.log('  team web [--port 3000]            Start web dashboard');
+    console.log('  team flow                         Show workflow (mermaid)');
+    console.log('  team flow --png                   Export workflow as PNG');
+    console.log('  team flow --open                  Export and open PNG');
 }

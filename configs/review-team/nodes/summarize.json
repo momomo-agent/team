@@ -1,0 +1,10 @@
+{
+  "type": "sequence",
+  "description": "汇总审查结果",
+  "steps": [
+    {
+      "id": "write-summary",
+      "execute": { "type": "agent", "agent": "summarizer" }
+    }
+  ]
+}

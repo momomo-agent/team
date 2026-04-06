@@ -1,0 +1,16 @@
+{
+  "type": "sequence",
+  "description": "PM 决策下一步",
+  "steps": [
+    {
+      "id": "fix-arch",
+      "when": "archNeedsUpdate > 0",
+      "execute": { "type": "agent", "agent": "architect" }
+    },
+    {
+      "id": "pm-plan",
+      "execute": { "type": "agent", "agent": "pm" }
+    }
+  ],
+  "next": "work_loop"
+}

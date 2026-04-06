@@ -1,0 +1,8 @@
+{
+  "type": "wait",
+  "description": "待机等新任务",
+  "when": "todoCount > 0",
+  "pollInterval": 10000,
+  "maxWait": 3600000,
+  "next": "work_loop"
+}

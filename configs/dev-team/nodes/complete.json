@@ -1,0 +1,13 @@
+{
+  "type": "sequence",
+  "description": "目标达成 — workflow 完成",
+  "steps": [
+    {
+      "id": "final-report",
+      "execute": {
+        "type": "shell",
+        "command": "echo '✅ Goal achieved' >> .team/daemon.log"
+      }
+    }
+  ]
+}

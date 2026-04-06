@@ -1,0 +1,39 @@
+{
+  "version": "1.0",
+  "description": "代码审查团队 — 多维度自动 Code Review",
+  "workflow": {
+    "entry": "gather",
+    "context": {
+      "hasFindings": "tasks.byStatus('review').length > 0",
+      "criticalCount": "tasks.byStatus('blocked').length",
+      "passedCount": "tasks.byStatus('done').length",
+      "totalChecks": "tasks.all().length"
+    },
+    "nodes": {
+      "gather": "nodes/gather.json",
+      "parallel_review": "nodes/parallel-review.json",
+      "summarize": "nodes/summarize.json"
+    }
+  },
+  "agents": {
+    "security_reviewer": {
+      "prompt": "prompts/security_reviewer.md",
+      "model": "claude-sonnet-4"
+    },
+    "perf_reviewer": {
+      "prompt": "prompts/perf_reviewer.md",
+      "model": "claude-sonnet-4"
+    },
+    "style_reviewer": {
+      "prompt": "prompts/style_reviewer.md",
+      "model": "claude-sonnet-4"
+    },
+    "summarizer": {
+      "prompt": "prompts/summarizer.md",
+      "model": "claude-sonnet-4"
+    }
+  },
+  "docs": {
+    "root": ".team/docs"
+  }
+}

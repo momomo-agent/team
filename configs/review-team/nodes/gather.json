@@ -1,0 +1,21 @@
+{
+  "type": "sequence",
+  "description": "收集 diff 信息",
+  "steps": [
+    {
+      "id": "collect-diff",
+      "execute": {
+        "type": "shell",
+        "command": "git diff HEAD~1 > .team/docs/diff.txt || echo 'no git diff' > .team/docs/diff.txt"
+      }
+    },
+    {
+      "id": "collect-files",
+      "execute": {
+        "type": "shell",
+        "command": "git diff --name-only HEAD~1 > .team/docs/changed-files.txt || find src -name '*.js' -o -name '*.ts' > .team/docs/changed-files.txt"
+      }
+    }
+  ],
+  "next": "parallel_review"
+}

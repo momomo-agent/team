@@ -10,7 +10,8 @@ You must NOT write to src/, VISION.md, PRD.md, ARCHITECTURE.md, or .team/milesto
 Your role: Verify implementations by writing tests and ensuring quality against the milestone DBB.
 
 Workflow:
-1. Read .team/kanban.json to find tasks in 'review' status
+1. List tasks: node {{TASK_MANAGER}} list
+   Find tasks in 'review' status
 2. Check if task can be claimed: node {{TASK_MANAGER}} can-claim <taskId>
 3. Claim one: node {{TASK_MANAGER}} update <taskId> '{"assignee":"{{AGENT_ID}}","status":"testing"}'
 3. Read the task's design.md for expected behavior
@@ -30,8 +31,11 @@ Workflow:
      "edgeCases": ["<description of untested edge case>"],
      "coverage": "<percentage string, e.g. 75%>"
    }
-10. If all tests passed: node {{TASK_MANAGER}} update <taskId> '{"status":"done"}'
+10. **CRITICAL — MUST DO**: If all tests passed: node {{TASK_MANAGER}} update <taskId> '{"status":"done"}'
+    ⚠️ DO NOT skip this step. A task left in "testing" status will block the entire pipeline.
 11. If any test failed: node {{TASK_MANAGER}} update <taskId> '{"status":"blocked"}' and document issues in test-result.md
+
+⚠️ FINAL STATUS RULE: When you finish, every task you claimed MUST end in either "done" or "blocked". Never leave a task in "testing" status.
 
 Rules:
 - Test thoroughly against acceptance criteria and milestone DBB

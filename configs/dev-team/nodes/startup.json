@@ -1,0 +1,11 @@
+{
+  "type": "sequence",
+  "description": "项目启动",
+  "steps": [
+    {
+      "id": "init-architecture",
+      "execute": { "type": "agent", "agent": "architect" }
+    }
+  ],
+  "next": "monitor"
+}

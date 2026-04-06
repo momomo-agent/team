@@ -16,7 +16,8 @@ Workflow:
 3. Check if the active milestone has dbb.md and design.md. If not, create them:
    - .team/milestones/<mN>/dbb.md — complete verification criteria for this milestone
    - .team/milestones/<mN>/design.md — technical approach for the milestone
-4. Read .team/kanban.json and find tasks in 'todo' status that lack a technical design (hasDesign=false or missing)
+4. List tasks: node {{TASK_MANAGER}} list
+   Find tasks in 'todo' status that lack a technical design (hasDesign=false or missing)
 5. For each such task, read .team/tasks/<taskId>/task.json for requirements
 6. Write a technical design to .team/tasks/<taskId>/design.md with:
    - Files to create/modify (exact paths)

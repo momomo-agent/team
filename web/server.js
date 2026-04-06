@@ -19,6 +19,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const TaskManager = require('../lib/task-manager');
 
 const projectDir = process.argv[2] || process.cwd();
 const PORT = parseInt(process.argv[3]) || 3000;
@@ -136,7 +137,7 @@ function getMilestones() {
   const data = readJSON(path.join(projectDir, '.team/milestones/milestones.json'));
   if (!data || !data.milestones) return [];
 
-  const kanban = readJSON(path.join(projectDir, '.team/kanban.json')) || {};
+  const kanban = new TaskManager(projectDir).getKanban();
   const doneSet = new Set(kanban.done || []);
 
   return data.milestones.map(ms => {
@@ -262,9 +263,7 @@ const server = http.createServer((req, res) => {
   }
   else if (pathname === '/kanban') {
     const milestoneFilter = parsed.query.milestone;
-    const kanban = readJSON(path.join(projectDir, '.team/kanban.json')) || {
-      todo: [], inProgress: [], blocked: [], review: [], testing: [], done: []
-    };
+    const kanban = new TaskManager(projectDir).getKanban();
 
     // If milestone filter, only include tasks belonging to that milestone
     let filteredKanban = kanban;
@@ -479,6 +478,54 @@ const server = http.createServer((req, res) => {
       } catch {}
     }
     sendJSON({ success: true });
+  }
+  else if (pathname === '/events') {
+    // SSE endpoint: stream events in real-time via EventBus listener
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*'
+    });
+
+    // Lazy init shared EventBus for server (singleton)
+    if (!global._serverEventBus) {
+      global._serverEventBus = new (require('../lib/event-bus'))(projectDir);
+      global._serverEventBus.startWatching();
+    }
+    const bus = global._serverEventBus;
+
+    // Send initial heartbeat
+    res.write('data: {"type":"connected"}\n\n');
+
+    // Send recent events so client gets context
+    const recent = bus.recent(20);
+    for (const evt of recent) {
+      res.write('data: ' + JSON.stringify(evt) + '\n\n');
+    }
+
+    // Subscribe to new events
+    const listener = (event) => {
+      res.write('data: ' + JSON.stringify(event) + '\n\n');
+    };
+    bus.on('*', listener);
+
+    // Heartbeat to keep connection alive
+    const heartbeat = setInterval(() => {
+      res.write(': heartbeat\n\n');
+    }, 30000);
+
+    req.on('close', () => {
+      bus.off('*', listener);
+      clearInterval(heartbeat);
+    });
+  }
+  else if (pathname === '/events/recent') {
+    // Get recent events
+    const eventBus = new (require('../lib/event-bus'))(projectDir);
+    const limit = parseInt(parsed.query.limit) || 50;
+    const type = parsed.query.type || null;
+    sendJSON(eventBus.recent(limit, type));
   }
   else {
     // Static files

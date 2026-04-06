@@ -1,56 +1,71 @@
-#!/usr/bin/env node
 /**
- * DevTeam Monitor - 独立监控系统
+ * DevTeam Monitor — 独立健康监控
  * 
  * 监控指标：
- * 1. 卡死检测：agent 运行时间过长
- * 2. 自循环检测：任务在状态间反复
- * 3. 无推进检测：长时间无状态变化
- * 4. CR 爆炸检测：pending CR 过多
- * 5. 内存泄漏检测：内存持续增长
- * 6. Agent 失败率：失败次数过多
+ * 1. agent_timeout  — agent 运行超过阈值
+ * 2. task_loop      — 任务状态反复跳动
+ * 3. no_progress    — 长时间无推进
+ * 4. cr_explosion   — pending CR 过多
+ * 5. memory_leak    — 内存持续增长
+ * 6. high_failure_rate — agent 失败率过高
+ * 
+ * 使用:
+ *   const m = new DevTeamMonitor(daemon);
+ *   m.start();
+ * 
+ * 告警通过 daemon.eventBus 发送 'monitor_alert' 事件。
  */
 
 const fs = require('fs');
 const path = require('path');
 
-const CHECK_INTERVAL = 30 * 1000; // 30 秒检查一次
-const THRESHOLDS = {
-  agentTimeout: 10 * 60 * 1000,      // agent 运行超过 10 分钟
-  noProgress: 5 * 60 * 1000,         // 5 分钟无推进
-  loopDetection: 3,                  // 同一任务循环 3 次
-  crExplosion: 20,                   // pending CR 超过 20
-  memoryGrowth: 500,                 // 内存增长超过 500MB
-  failureRate: 0.3                   // 失败率超过 30%
+const CHECK_INTERVAL = 30 * 1000;
+const ALERT_DEDUP_WINDOW = 5 * 60 * 1000;
+
+const DEFAULT_THRESHOLDS = {
+  agentTimeout: 10 * 60 * 1000,
+  noProgress: 5 * 60 * 1000,
+  loopStates: 6,
+  crExplosion: 20,
+  memoryGrowthMB: 500,
+  failureRate: 0.3,
+  minSamplesForRate: 5,
 };
 
 class DevTeamMonitor {
-  constructor(projectDir) {
-    this.projectDir = projectDir;
+  constructor(daemon, options = {}) {
+    this.daemon = daemon;
+    this.projectDir = daemon.projectDir;
+    this.thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds || {}) };
+    this.interval = options.interval || CHECK_INTERVAL;
+
     this.history = {
-      taskStates: new Map(),           // taskId -> [states]
-      agentStarts: new Map(),          // agentId -> startTime
-      lastProgress: Date.now(),        // 最后一次推进时间
-      memorySnapshots: [],             // 内存快照
-      agentStats: new Map()            // agentId -> {success, failure}
+      taskStates: new Map(),
+      lastProgress: Date.now(),
+      lastDoneCount: 0,
+      memorySnapshots: [],
+      agentStats: new Map(),
     };
-    this.alertCache = new Map();       // 修复 5: 告警去重缓存 (type+message -> timestamp)
+    this.alertCache = new Map();
+    this.timer = null;
   }
 
   start() {
-    console.log('[Monitor] Starting DevTeam monitor...');
-    this.checkLoop();
+    if (this.timer) return;
+    this.daemon.log('workflow', 'monitor', '[HEALTH] Monitor started');
+    this.timer = setInterval(() => this.runChecks(), this.interval);
+    // 首次延迟 10s 避免和 daemon 启动冲突
+    setTimeout(() => this.runChecks(), 10000);
   }
 
-  checkLoop() {
-    this.runChecks();
-    setTimeout(() => this.checkLoop(), CHECK_INTERVAL);
+  stop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
   }
 
   runChecks() {
-    const timestamp = new Date().toISOString();
-    console.log(`[${timestamp}] Running health checks...`);
-
     try {
       this.checkAgentTimeout();
       this.checkTaskLoop();
@@ -59,73 +74,95 @@ class DevTeamMonitor {
       this.checkMemory();
       this.checkFailureRate();
     } catch (err) {
-      console.error('[Monitor] Check failed:', err.message);
+      this.daemon.log('workflow', 'monitor', `Check failed: ${err.message}`);
     }
   }
+
+  // ─── Individual Checks ───
 
   checkAgentTimeout() {
     const statusPath = path.join(this.projectDir, '.team/agent-status.json');
     if (!fs.existsSync(statusPath)) return;
 
-    const status = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+    let status;
+    try { status = JSON.parse(fs.readFileSync(statusPath, 'utf8')); } catch { return; }
     const now = Date.now();
 
     for (const [agentId, info] of Object.entries(status)) {
       if (info.status === 'running' && info.startTime) {
         const runtime = now - new Date(info.startTime).getTime();
-        if (runtime > THRESHOLDS.agentTimeout) {
-          this.alert('agent_timeout', `Agent ${agentId} running for ${Math.round(runtime/60000)}min`);
+        if (runtime > this.thresholds.agentTimeout) {
+          this.alert('agent_timeout',
+            `${agentId} running for ${Math.round(runtime / 60000)}min`);
         }
       }
     }
   }
 
   checkTaskLoop() {
-    const kanbanPath = path.join(this.projectDir, '.team/kanban.json');
-    if (!fs.existsSync(kanbanPath)) return;
+    // 从 task.json 文件扫描（kanban.json 已废弃）
+    const tasksDir = path.join(this.projectDir, '.team/tasks');
+    if (!fs.existsSync(tasksDir)) return;
 
-    const kanban = JSON.parse(fs.readFileSync(kanbanPath, 'utf8'));
-    const allTasks = [...(kanban.todo || []), ...(kanban.inProgress || [])];
+    const dirs = fs.readdirSync(tasksDir).filter(d =>
+      fs.existsSync(path.join(tasksDir, d, 'task.json'))
+    );
 
-    for (const taskId of allTasks) {
+    for (const taskId of dirs) {
+      let task;
+      try {
+        task = JSON.parse(fs.readFileSync(
+          path.join(tasksDir, taskId, 'task.json'), 'utf8'));
+      } catch { continue; }
+
+      if (task.status === 'done') continue; // 已完成的不追踪
+
       if (!this.history.taskStates.has(taskId)) {
         this.history.taskStates.set(taskId, []);
       }
       const states = this.history.taskStates.get(taskId);
-      const currentState = kanban.inProgress.includes(taskId) ? 'inProgress' : 'todo';
-      
-      states.push(currentState);
-      if (states.length > 10) states.shift();
+      states.push(task.status);
+      if (states.length > 12) states.shift();
 
-      // 检测循环：todo -> inProgress -> todo -> inProgress
-      if (states.length >= 6) {
-        const pattern = states.slice(-6).join(',');
-        if (pattern === 'todo,inProgress,todo,inProgress,todo,inProgress') {
-          this.alert('task_loop', `Task ${taskId} looping between todo/inProgress`);
+      // 检测 ping-pong：连续状态交替跳动（A→B→A→B 模式）
+      if (states.length >= this.thresholds.loopStates) {
+        const recent = states.slice(-this.thresholds.loopStates);
+        const unique = new Set(recent);
+        if (unique.size === 2) {
+          // 计算实际交替次数（状态发生变化的次数）
+          let transitions = 0;
+          for (let i = 1; i < recent.length; i++) {
+            if (recent[i] !== recent[i - 1]) transitions++;
+          }
+          // 真正的 ping-pong: 交替次数 >= 4（至少来回跳 2 轮）
+          if (transitions >= 4) {
+            const pattern = recent.join('→');
+            this.alert('task_loop', `${taskId} ping-ponging: ${pattern}`);
+          }
         }
       }
     }
   }
 
   checkProgress() {
-    const kanbanPath = path.join(this.projectDir, '.team/kanban.json');
-    if (!fs.existsSync(kanbanPath)) return;
+    const kanban = this.daemon.getKanban ? this.daemon.getKanban() : null;
+    if (!kanban) return;
 
-    const kanban = JSON.parse(fs.readFileSync(kanbanPath, 'utf8'));
     const doneCount = (kanban.done || []).length;
+    const activeCount = (kanban.todo || []).length
+      + (kanban.inProgress || []).length
+      + (kanban.review || []).length
+      + (kanban.testing || []).length;
 
-    if (doneCount > this.lastDoneCount) {
+    if (doneCount > this.history.lastDoneCount) {
       this.history.lastProgress = Date.now();
-      this.lastDoneCount = doneCount;
+      this.history.lastDoneCount = doneCount;
     }
 
-    const timeSinceProgress = Date.now() - this.history.lastProgress;
-    if (timeSinceProgress > THRESHOLDS.noProgress) {
-      const todoCount = (kanban.todo || []).length;
-      const inProgressCount = (kanban.inProgress || []).length;
-      if (todoCount > 0 || inProgressCount > 0) {
-        this.alert('no_progress', `No progress for ${Math.round(timeSinceProgress/60000)}min (todo:${todoCount}, inProgress:${inProgressCount})`);
-      }
+    const idleTime = Date.now() - this.history.lastProgress;
+    if (idleTime > this.thresholds.noProgress && activeCount > 0) {
+      this.alert('no_progress',
+        `No progress for ${Math.round(idleTime / 60000)}min (active:${activeCount}, done:${doneCount})`);
     }
   }
 
@@ -133,41 +170,38 @@ class DevTeamMonitor {
     const crDir = path.join(this.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return;
 
+    let pending = 0;
     const files = fs.readdirSync(crDir).filter(f => f.endsWith('.json'));
-    let pendingCount = 0;
-
-    for (const file of files) {
+    for (const f of files) {
       try {
-        const cr = JSON.parse(fs.readFileSync(path.join(crDir, file), 'utf8'));
-        if (cr.status === 'pending') pendingCount++;
+        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
+        if (cr.status === 'pending') pending++;
       } catch {}
     }
 
-    if (pendingCount > THRESHOLDS.crExplosion) {
-      this.alert('cr_explosion', `${pendingCount} pending CRs detected`);
+    if (pending > this.thresholds.crExplosion) {
+      this.alert('cr_explosion', `${pending} pending CRs`);
     }
   }
 
   checkMemory() {
-    const daemonLog = path.join(this.projectDir, '.team/daemon.log');
-    if (!fs.existsSync(daemonLog)) return;
+    const logPath = path.join(this.projectDir, '.team/daemon.log');
+    if (!fs.existsSync(logPath)) return;
 
-    // 读取最近的性能日志
-    const lines = fs.readFileSync(daemonLog, 'utf8').split('\n').slice(-100);
-    const perfLogs = lines.filter(l => l.includes('"event":"perf"')).slice(-5);
+    const lines = fs.readFileSync(logPath, 'utf8').split('\n').slice(-200);
+    const memories = [];
+    for (const line of lines) {
+      // 匹配 daemon.js 性能日志: "rss":"56MB"
+      const m = line.match(/"rss":"(\d+)MB"/);
+      if (m) memories.push(parseInt(m[1]));
+    }
 
-    if (perfLogs.length < 2) return;
-
-    const memories = perfLogs.map(line => {
-      try {
-        const log = JSON.parse(line);
-        return parseInt(log.details.match(/rss:(\d+)MB/)[1]);
-      } catch { return 0; }
-    });
-
-    const growth = memories[memories.length - 1] - memories[0];
-    if (growth > THRESHOLDS.memoryGrowth) {
-      this.alert('memory_leak', `Memory grew ${growth}MB in last ${perfLogs.length} checks`);
+    if (memories.length < 3) return;
+    const recent = memories.slice(-5);
+    const growth = recent[recent.length - 1] - recent[0];
+    if (growth > this.thresholds.memoryGrowthMB) {
+      this.alert('memory_leak',
+        `Memory grew ${growth}MB over ${recent.length} samples`);
     }
   }
 
@@ -175,66 +209,92 @@ class DevTeamMonitor {
     const logPath = path.join(this.projectDir, '.team/daemon.log');
     if (!fs.existsSync(logPath)) return;
 
+    // 只看最近 200 行
     const lines = fs.readFileSync(logPath, 'utf8').split('\n').slice(-200);
-    
+
+    // 重置统计（基于最近 200 行窗口）
+    const stats = new Map();
     for (const line of lines) {
-      try {
-        const log = JSON.parse(line);
-        if (log.event === 'agent_complete') {
-          const agent = log.agent;
-          if (!this.history.agentStats.has(agent)) {
-            this.history.agentStats.set(agent, {success: 0, failure: 0});
-          }
-          this.history.agentStats.get(agent).success++;
-        } else if (log.event === 'agent_failed') {
-          const agent = log.agent;
-          if (!this.history.agentStats.has(agent)) {
-            this.history.agentStats.set(agent, {success: 0, failure: 0});
-          }
-          this.history.agentStats.get(agent).failure++;
-        }
-      } catch {}
+      // daemon.log 是文本格式，不是 JSON — 匹配模式
+      // [timestamp] [agent_complete] <agent> completed successfully
+      // [timestamp] [agent_failed] <agent> ...
+      const complete = line.match(/\[agent_complete\]\s+(\S+)/);
+      const failed = line.match(/\[agent_failed\]\s+(\S+)/);
+
+      if (complete) {
+        const agent = complete[1].replace(/-\d+$/, ''); // strip instance suffix
+        if (!stats.has(agent)) stats.set(agent, { success: 0, failure: 0 });
+        stats.get(agent).success++;
+      }
+      if (failed) {
+        const agent = failed[1].replace(/-\d+$/, '');
+        if (!stats.has(agent)) stats.set(agent, { success: 0, failure: 0 });
+        stats.get(agent).failure++;
+      }
     }
 
-    for (const [agent, stats] of this.history.agentStats) {
-      const total = stats.success + stats.failure;
-      if (total >= 5) {
-        const rate = stats.failure / total;
-        if (rate > THRESHOLDS.failureRate) {
-          this.alert('high_failure_rate', `Agent ${agent} failure rate: ${Math.round(rate*100)}%`);
+    for (const [agent, s] of stats) {
+      const total = s.success + s.failure;
+      if (total >= this.thresholds.minSamplesForRate) {
+        const rate = s.failure / total;
+        if (rate > this.thresholds.failureRate) {
+          this.alert('high_failure_rate',
+            `${agent}: ${Math.round(rate * 100)}% failure (${s.failure}/${total})`);
         }
       }
     }
   }
 
+  // ─── Alert Dispatch ───
+
   alert(type, message) {
-    const timestamp = new Date().toISOString();
-    
-    // 修复 5: 5 分钟内相同告警只发一次
-    const alertKey = `${type}:${message}`;
+    const key = `${type}:${message}`;
     const now = Date.now();
-    const FIVE_MINUTES = 5 * 60 * 1000;
-    
-    if (this.alertCache.has(alertKey)) {
-      const lastAlert = this.alertCache.get(alertKey);
-      if (now - lastAlert < FIVE_MINUTES) {
-        return; // 5 分钟内已发过，跳过
-      }
+    const last = this.alertCache.get(key);
+    if (last && now - last < ALERT_DEDUP_WINDOW) return;
+    this.alertCache.set(key, now);
+
+    const ts = new Date().toISOString();
+    this.daemon.log('workflow', 'monitor', `⚠️ [ALERT:${type}] ${message}`);
+
+    // 通过 EventBus 发事件
+    if (this.daemon.eventBus) {
+      this.daemon.eventBus.emit('monitor_alert', 'monitor', {
+        details: JSON.stringify({ type, message }),
+      });
     }
-    
-    this.alertCache.set(alertKey, now);
-    
-    console.error(`[${timestamp}] ⚠️  ALERT [${type}] ${message}`);
-    
-    // 写入告警日志
+
+    // 写告警日志
     const alertLog = path.join(this.projectDir, '.team/monitor-alerts.log');
-    const alert = JSON.stringify({time: timestamp, type, message}) + '\n';
-    fs.appendFileSync(alertLog, alert);
+    fs.appendFileSync(alertLog, JSON.stringify({ time: ts, type, message }) + '\n');
   }
 }
 
-// CLI
-const projectDir = process.argv[2] || process.cwd();
-const monitor = new DevTeamMonitor(projectDir);
-monitor.lastDoneCount = 0;
-monitor.start();
+module.exports = DevTeamMonitor;
+
+// CLI 独立运行支持
+if (require.main === module) {
+  const projectDir = process.argv[2] || process.cwd();
+  const mockDaemon = {
+    projectDir,
+    log: (level, src, msg) => {
+      const prefix = level === 'error' ? '⚠️ ' : '';
+      console.log(`${prefix}[${src}] ${msg}`);
+    },
+    getKanban: () => {
+      const tasksDir = path.join(projectDir, '.team/tasks');
+      const k = { todo: [], inProgress: [], review: [], testing: [], done: [], blocked: [] };
+      if (!fs.existsSync(tasksDir)) return k;
+      for (const d of fs.readdirSync(tasksDir)) {
+        try {
+          const t = JSON.parse(fs.readFileSync(path.join(tasksDir, d, 'task.json'), 'utf8'));
+          if (k[t.status]) k[t.status].push(d);
+        } catch {}
+      }
+      return k;
+    },
+    eventBus: null,
+  };
+  const m = new DevTeamMonitor(mockDaemon);
+  m.start();
+}

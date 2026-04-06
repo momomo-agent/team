@@ -14,13 +14,17 @@
 const { spawn, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const WorkflowEngine = require('./workflow-engine-v3');
+const WorkflowEngine = require('./workflow-engine');
 
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
 const AGENT_TIMEOUT = 60 * 60 * 1000;   // 60 min
 const RUNNER = path.join(__dirname, 'runner.js');
 const DEVTEAM_ROOT = path.join(__dirname, '..');
-const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs/dev-team.json');
+const DEFAULT_WORKFLOW = 'dev-team';
+const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs', DEFAULT_WORKFLOW, 'config.json');
+
+const EventBus = require('../lib/event-bus');
+const DevTeamMonitor = require('./monitor');
 
 class TeamDaemon {
   constructor(projectDir, opts) {
@@ -28,13 +32,14 @@ class TeamDaemon {
     this.projectDir = projectDir;
     this.running = false;
     this.busy = false;
-    this.maxDevs = opts.devs || 3;
-    this.workLoopCount = 0;
     this.perfMonitorInterval = null;
     this.techLeadFailCount = 0; // 修复 4: tech_lead 失败计数
     this.architectFailCount = 0; // 修复 5: architect 失败计数
     
-    // Event system
+    // Event bus (append-only log + pub/sub)
+    this.eventBus = new EventBus(projectDir);
+    
+    // Legacy event system
     this.eventHandlers = {}; // { eventName: [handler1, handler2, ...] }
   }
 
@@ -128,18 +133,9 @@ class TeamDaemon {
     // Console output
     console.log('[' + ts() + '] [' + event + '] ' + (agent || '') + ' ' + (details || ''));
 
-    // Append to daemon.log (JSONL format)
-    var logPath = path.join(this.projectDir, '.team/daemon.log');
-    try {
-      var teamDir = path.join(this.projectDir, '.team');
-      if (!fs.existsSync(teamDir)) {
-        fs.mkdirSync(teamDir, { recursive: true });
-      }
-      // Append as single line JSON
-      fs.appendFileSync(logPath, JSON.stringify(entry) + '\n');
-    } catch (e) {
-      // Ignore write errors
-    }
+    // Write to events.log via EventBus
+    // Write to events.log via EventBus (single source of truth for all events)
+    this.eventBus.emit(event, agent, { details: details, performance: entry.performance });
   }
 
   // --- Agent Execution ---
@@ -148,20 +144,12 @@ class TeamDaemon {
     var self = this;
     return new Promise(function(resolve) {
       var baseType = agentType.replace(/-\d+$/, '');
-      var taskDesc = {
-        architect: '设计系统架构',
-        vision_monitor: '评估愿景匹配度',
-        prd_monitor: '评估PRD匹配度',
-        dbb_monitor: '评估DBB匹配度',
-        arch_monitor: '评估架构匹配度',
-        pm: '管理任务和里程碑',
-        tech_lead: '出技术方案',
-        developer: '实现功能',
-        tester: '验证功能'
-      };
+      // Agent description: from config first, fallback to agent type name
+      var agentConfig = (self.config && self.config.agents && self.config.agents[baseType]) || {};
+      var desc = agentConfig.description || baseType;
 
-      self.log('agent_start', agentType, taskDesc[baseType] || agentType);
-      self.updateAgentStatus(agentType, 'running', taskDesc[baseType] || agentType);
+      self.log('agent_start', agentType, desc);
+      self.updateAgentStatus(agentType, 'running', desc);
 
       // 修复 6: PM 运行前备份 kanban
       if (baseType === 'pm') {
@@ -191,22 +179,27 @@ class TeamDaemon {
             self.architectFailCount = 0;
           }
 
+          // Generic success: reset fail count for agents with onFail config
+          if (!self._failCounts) self._failCounts = {};
+          self._failCounts[baseType] = 0;
+
           // PM 完成后发送 kanban_updated 事件
           if (baseType === 'pm') {
-            var kanbanPath = path.join(self.projectDir, '.team/kanban.json');
             try {
-              var kanban = JSON.parse(fs.readFileSync(kanbanPath, 'utf8'));
+              var kanban = self.getKanban();
               self.emit('kanban_updated', kanban);
             } catch (e) {
               self.log('error', 'pm', 'Failed to read kanban: ' + e.message);
             }
           }
 
-          // Auto git commit after developer or tester completes (from config)
+          // Auto git commit from config: agent-level or global
           var config = self.loadWorkflowConfig();
-          if (config.git && config.git.commitPerTask && (baseType === 'developer' || baseType === 'tester')) {
+          var agentCfg = (config.agents && config.agents[baseType]) || {};
+          var shouldCommit = agentCfg.gitCommit || (config.git && config.git.commitPerTask && agentCfg.scalable);
+          if (shouldCommit) {
             try {
-              var prefix = baseType === 'developer' ? 'feat' : 'test';
+              var prefix = agentCfg.gitPrefix || baseType;
               execSync('git add -A && git diff --cached --quiet || git commit -m "' + prefix + ': ' + agentType + ' completed"', {
                 cwd: self.projectDir,
                 stdio: 'pipe'
@@ -219,7 +212,26 @@ class TeamDaemon {
 
           resolve(true);
         } else {
-          // 修复 4: tech_lead 连续失败 3 次后创建最小化 design.md
+          // Generic onFail handling from config
+          if (!self._failCounts) self._failCounts = {};
+          self._failCounts[baseType] = (self._failCounts[baseType] || 0) + 1;
+
+          var failAgentCfg = (self.config && self.config.agents && self.config.agents[baseType]) || {};
+          var onFail = failAgentCfg.onFail;
+          if (onFail && onFail.maxRetries && self._failCounts[baseType] >= onFail.maxRetries) {
+            self.log('error', baseType, 'Failed ' + onFail.maxRetries + ' times');
+            if (onFail.fallbackShell) {
+              try {
+                execSync(onFail.fallbackShell, { cwd: self.projectDir, stdio: 'pipe' });
+                self.log('workflow', baseType, 'Fallback executed: ' + onFail.fallbackShell);
+              } catch {}
+            }
+            self._failCounts[baseType] = 0;
+            resolve(true);
+            return;
+          }
+
+          // Legacy: tech_lead/architect specific fallbacks (backward compat)
           if (baseType === 'tech_lead') {
             self.techLeadFailCount++;
             if (self.techLeadFailCount >= 3) {
@@ -231,7 +243,6 @@ class TeamDaemon {
             }
           }
 
-          // 修复 5: architect 连续失败 3 次后创建最小化 ARCHITECTURE.md
           if (baseType === 'architect') {
             self.architectFailCount++;
             if (self.architectFailCount >= 3) {
@@ -547,28 +558,25 @@ class TeamDaemon {
       } catch {}
     }
 
-    // If we've done 2+ work loops with same inProgress tasks, move them back to todo
-    if (this.workLoopCount >= 2 && inProgress.length > 0) {
+    // Check for tasks stuck in inProgress > 2h (handled by checkStuckTasks)
+    if (inProgress.length > 0) {
       for (var i = 0; i < inProgress.length; i++) {
         var taskId = inProgress[i];
         try {
           tm.updateTask(taskId, { status: 'todo', assignee: null });
-          this.log('error', taskId, 'Task stuck in inProgress for 2+ loops, moved back to todo');
+          this.log('error', taskId, 'Task stuck in inProgress, moved back to todo');
         } catch {}
       }
-      this.workLoopCount = 0;
     }
   }
 
   // --- Data Reading ---
 
   getKanban() {
-    var p = path.join(this.projectDir, '.team/kanban.json');
-    try {
-      return JSON.parse(fs.readFileSync(p, 'utf8'));
-    } catch {
-      return { todo: [], inProgress: [], blocked: [], review: [], testing: [], done: [] };
-    }
+    // Single source of truth: derive from task.json files via task-manager
+    var TaskManager = require('../lib/task-manager');
+    var tm = new TaskManager(this.projectDir, this);
+    return tm.getKanban();
   }
 
   getMilestones() {
@@ -582,7 +590,10 @@ class TeamDaemon {
 
   getActiveMilestone() {
     var data = this.getMilestones();
-    return (data.milestones || []).find(function(m) { return m.status === 'active'; }) || null;
+    // active, ready-for-work, in-progress all count as "active" milestone
+    return (data.milestones || []).find(function(m) {
+      return m.status === 'active' || m.status === 'ready-for-work' || m.status === 'in-progress';
+    }) || null;
   }
 
   // 修复 4: 创建最小化 design.md 模板
@@ -620,30 +631,13 @@ class TeamDaemon {
     }
   }
 
-  // 修复 6: PM 崩溃时回退 kanban
+  // kanban backup/restore no longer needed (task.json is source of truth)
   backupKanban() {
-    var kanbanPath = path.join(this.projectDir, '.team/kanban.json');
-    var backupPath = path.join(this.projectDir, '.team/kanban.backup.json');
-    try {
-      if (fs.existsSync(kanbanPath)) {
-        fs.copyFileSync(kanbanPath, backupPath);
-      }
-    } catch (err) {
-      this.log('error', 'pm', 'Failed to backup kanban: ' + err.message);
-    }
+    // no-op: kanban derived from task files
   }
 
   restoreKanban() {
-    var kanbanPath = path.join(this.projectDir, '.team/kanban.json');
-    var backupPath = path.join(this.projectDir, '.team/kanban.backup.json');
-    try {
-      if (fs.existsSync(backupPath)) {
-        fs.copyFileSync(backupPath, kanbanPath);
-        this.log('info', 'pm', 'Restored kanban from backup');
-      }
-    } catch (err) {
-      this.log('error', 'pm', 'Failed to restore kanban: ' + err.message);
-    }
+    // no-op: kanban derived from task files
   }
 
   // 修复 7: architect 失败后恢复 CR 为 pending
@@ -670,46 +664,6 @@ class TeamDaemon {
     }
   }
 
-  getTasksWithDesign() {
-    var kanban = this.getKanban();
-    var todoIds = kanban.todo || [];
-    var count = 0;
-    for (var i = 0; i < todoIds.length; i++) {
-      var tid = todoIds[i];
-      var taskPath = path.join(this.projectDir, '.team/tasks', tid, 'task.json');
-      try {
-        var task = JSON.parse(fs.readFileSync(taskPath, 'utf8'));
-        if (task.hasDesign) count++;
-      } catch {}
-    }
-    return count;
-  }
-
-  getReviewCount() {
-    var kanban = this.getKanban();
-    return (kanban.review || []).length;
-  }
-
-  getDoneCount() {
-    var kanban = this.getKanban();
-    return (kanban.done || []).length;
-  }
-
-  getTodoCount() {
-    var kanban = this.getKanban();
-    return (kanban.todo || []).length;
-  }
-
-  getInProgressCount() {
-    var kanban = this.getKanban();
-    return (kanban.inProgress || []).length;
-  }
-
-  getTestingCount() {
-    var kanban = this.getKanban();
-    return (kanban.testing || []).length;
-  }
-
   isMilestoneComplete() {
     var ms = this.getActiveMilestone();
     if (!ms || !ms.tasks || ms.tasks.length === 0) return false;
@@ -718,163 +672,16 @@ class TeamDaemon {
     return ms.tasks.every(function(id) { return doneSet.has(id); });
   }
 
-  // --- Scalable Agent Spawning ---
-
-  getScalableAgentInstances(agentType) {
-    var baseType = agentType.replace(/-\d+$/, '');
-
-    if (baseType === 'developer') {
-      var designedTasks = this.getTasksWithDesign();
-      if (designedTasks <= 0) return [];
-      var devCount = Math.max(1, Math.min(designedTasks, this.maxDevs));
-      var devInstances = [];
-      for (var i = 1; i <= devCount; i++) {
-        devInstances.push(baseType + '-' + i);
-      }
-      return devInstances;
-    }
-
-    if (baseType === 'tester') {
-      var reviewCount = this.getReviewCount();
-      if (reviewCount <= 0) return [];
-      // Task 3: Increased tester count from 2 to 4
-      var testCount = Math.min(Math.ceil(reviewCount / 2), 4);
-      var testInstances = [];
-      for (var j = 1; j <= testCount; j++) {
-        testInstances.push(baseType + '-' + j);
-      }
-      return testInstances;
-    }
-
-    // Non-scalable: just return the agent type itself
-    return [baseType];
-  }
-
   // --- Event Handlers (Config-Driven) ---
 
   async onProjectStart() {
     this.log('milestone_complete', null, '=== PROJECT START ===');
 
-    // 检查配置版本
     var config = this.loadWorkflowConfig();
     this.log('agent_start', 'workflow', 'Config version: ' + config.version);
-    
-    if (parseFloat(config.version) >= 3.0) {
-      // v3.0+: 使用 WorkflowEngine
-      this.log('agent_start', 'workflow', 'Using v3.0 WorkflowEngine');
-      const engine = new WorkflowEngine(config, this);
-      await engine.execute();
-    } else {
-      // v2.0: 使用原有逻辑
-      this.log('agent_start', 'workflow', 'Using v2.0 workflow');
-      var startup = config.workflow.startup;
-      
-      if (!startup || !Array.isArray(startup)) {
-        this.log('error', 'workflow', 'Invalid v2.0 config: workflow.startup must be an array');
-        return;
-      }
 
-      // Execute startup steps sequentially
-      for (var i = 0; i < startup.length; i++) {
-        var step = startup[i];
-
-        // Check condition
-        if (step.condition && !this.evaluateCondition(step.condition)) {
-          this.log('agent_complete', step.agents.join(','), 'Condition not met (' + step.condition + '), skipping');
-          continue;
-        }
-
-        if (step.parallel) {
-          // Run all agents in parallel
-          this.log('agent_start', step.agents.join(','), 'Running in parallel...');
-          var parallelPromises = [];
-          for (var j = 0; j < step.agents.length; j++) {
-            parallelPromises.push(this.runAgent(step.agents[j]));
-          }
-          await Promise.all(parallelPromises);
-        } else {
-          // Run agents serially
-          for (var k = 0; k < step.agents.length; k++) {
-            await this.runAgent(step.agents[k]);
-          }
-        }
-      }
-
-      // Enter work loop
-      await this.workLoop();
-    }
-  }
-
-  async workLoop() {
-    this.log('agent_start', 'work_loop', '=== WORK LOOP ===');
-    this.workLoopCount++;
-
-    var config = this.loadWorkflowConfig();
-    var loopConfig = config.workflow.loop;
-    var agentsConfig = config.agents;
-
-    var designedTasks = this.getTasksWithDesign();
-    var reviewCount = this.getReviewCount();
-    var todoCount = this.getTodoCount();
-
-    if (todoCount === 0 && reviewCount === 0) {
-      this.log('agent_complete', 'work_loop', 'No work available, waiting...');
-      return;
-    }
-
-    this.log('agent_start', 'work_loop', 'Work: todo=' + todoCount + ', hasDesign=' + designedTasks + ', review=' + reviewCount);
-
-    // 全并行：Tech Lead + Developer + Tester
-    var parallel = [];
-    var parallelAgents = loopConfig.parallel || [];
-
-    for (var i = 0; i < parallelAgents.length; i++) {
-      var agentName = parallelAgents[i];
-      var agentConf = agentsConfig[agentName];
-
-      if (agentConf && agentConf.scalable) {
-        // Scalable agent: spawn N instances based on available work
-        var instances = this.getScalableAgentInstances(agentName);
-        for (var j = 0; j < instances.length; j++) {
-          parallel.push(this.runAgent(instances[j]));
-        }
-      } else {
-        // Non-scalable: check if there's work for this agent
-        if (agentName === 'tech_lead' && todoCount <= 0) continue;
-        parallel.push(this.runAgent(agentName));
-      }
-    }
-
-    if (parallel.length > 0) {
-      await Promise.all(parallel);
-    }
-
-    // Check for pending CRs after each work loop
-    this.checkPendingCRs();
-
-    // Check for stuck tasks
-    this.checkStuckTasks();
-
-    // Then phase: PM 再分配任务
-    var thenAgents = loopConfig.then || [];
-    for (var t = 0; t < thenAgents.length; t++) {
-      this.log('agent_start', thenAgents[t], 'Agents completed, running ' + thenAgents[t]);
-      await this.runAgent(thenAgents[t]);
-    }
-
-    // Check milestone completion
-    if (this.isMilestoneComplete()) {
-      await this.onMilestoneComplete();
-      return;
-    }
-
-    // Continue loop if there's still work
-    var kanban = this.getKanban();
-    if ((kanban.todo || []).length > 0 || (kanban.review || []).length > 0) {
-      await this.workLoop();
-    } else {
-      this.log('agent_complete', 'work_loop', 'No more work, entering standby');
-    }
+    const engine = new WorkflowEngine(config, this);
+    await engine.execute();
   }
 
   async onMilestoneComplete() {
@@ -883,8 +690,7 @@ class TeamDaemon {
     var msName = ms ? ms.name : 'Unknown';
     this.log('milestone_complete', msId, '=== MILESTONE ' + msId + ' COMPLETE: ' + msName + ' ===');
 
-    // Notify
-    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，正在运行四重检查...', 'milestone_complete');
+    await this.notify('里程碑完成: ' + msName, msName + ' 已完成，运行 QG + Monitor...', 'milestone_complete');
 
     // Ensure review directory exists
     if (ms) {
@@ -894,57 +700,10 @@ class TeamDaemon {
       }
     }
 
-    // Run milestoneCheck from config
+    // v3: 走 workflow engine 的 milestone_qg → monitor → pm_decide → work_loop
     var config = this.loadWorkflowConfig();
-    var msCheck = config.workflow.milestoneCheck;
-
-    // Parallel phase: monitors
-    this.log('agent_start', 'monitors', 'Running milestone review monitors...');
-    var parallelAgents = msCheck.parallel || [];
-    var parallelPromises = [];
-    for (var i = 0; i < parallelAgents.length; i++) {
-      parallelPromises.push(this.runAgent(parallelAgents[i]));
-    }
-    await Promise.all(parallelPromises);
-
-    // Task 3: Cross-Validation of Match Percentages
-    this.crossValidateMonitors(msId);
-
-    // Gaps summary
-    this.log('agent_complete', 'monitors', 'Monitors done, PM planning next milestone');
-
-    // Notify with review results
-    var reviewSummary = '';
-    var gapsDir = path.join(this.projectDir, '.team/gaps');
-    var gapFiles = ['vision.json', 'prd.json', 'dbb.json', 'architecture.json'];
-    for (var g = 0; g < gapFiles.length; g++) {
-      try {
-        var gapData = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[g]), 'utf8'));
-        var matchVal = gapData.match != null ? gapData.match : (gapData.coverage != null ? gapData.coverage : 0);
-        reviewSummary += gapFiles[g].replace('.json', '') + ': ' + matchVal + '% ';
-      } catch {}
-    }
-    await this.notify(msName + ' 检查完成', reviewSummary.trim(), 'milestone_review_complete');
-
-    // Check for pending CRs (Task 1)
-    this.checkPendingCRs();
-
-    // Task 6: Auto Git Commit on Milestone Complete
-    if (config.git && config.git.tagPerMilestone) {
-      this.autoGitCommit(msId, msName);
-    }
-
-    // Then phase: run agents from milestoneCheck.then serially
-    var thenAgents = msCheck.then || [];
-    for (var t = 0; t < thenAgents.length; t++) {
-      await this.runAgent(thenAgents[t]);
-    }
-
-    // Reset work loop counter for next milestone
-    this.workLoopCount = 0;
-
-    // Continue with work loop
-    await this.workLoop();
+    const engine = new WorkflowEngine(config, this);
+    await engine.executeNode('milestone_qg');
   }
 
   // --- Task 3: Cross-Validation of Match Percentages ---
@@ -1047,36 +806,23 @@ class TeamDaemon {
     try {
       var config = this.loadWorkflowConfig();
       var milestones = this.getMilestones();
-      var active = (milestones.milestones || []).find(function(m) { return m.status === 'active'; });
+      var active = this.getActiveMilestone();
 
       if (!milestones.milestones || milestones.milestones.length === 0) {
-        // No milestones → project start
         await this.onProjectStart();
       } else if (this.isMilestoneComplete()) {
         await this.onMilestoneComplete();
       } else if (active) {
-        // Active milestone - check version
-        if (parseFloat(config.version) >= 3.0) {
-          const WorkflowEngine = require('./workflow-engine-v3');
-          const engine = new WorkflowEngine(config, this);
-          await engine.executeNode('work_loop');
-        } else {
-          // v2.0: use legacy workLoop
-          await this.workLoop();
-        }
+        const engine = new WorkflowEngine(config, this);
+        await engine.executeNode('work_loop');
       } else {
         // All milestones completed, no active one
         this.log('agent_start', 'pm', 'All milestones completed, checking for new work...');
         await this.runAgent('pm');
         var newActive = this.getActiveMilestone();
         if (newActive) {
-          if (parseFloat(config.version) >= 3.0) {
-            const WorkflowEngine = require('./workflow-engine-v3');
-            const engine = new WorkflowEngine(config, this);
-            await engine.executeNode('work_loop');
-          } else {
-            await this.workLoop();
-          }
+          const engine = new WorkflowEngine(config, this);
+          await engine.executeNode('work_loop');
         }
       }
     } catch (err) {
@@ -1091,14 +837,14 @@ class TeamDaemon {
   start() {
     if (this.running) return;
     
-    // Check required files before starting
-    var requiredFiles = ['VISION.md', 'PRD.md'];
+    // Check required files from config (if declared)
+    var requiredFiles = (this.config && this.config.requiredFiles) || [];
     for (var i = 0; i < requiredFiles.length; i++) {
       var reqFile = requiredFiles[i];
       if (!fs.existsSync(path.join(this.projectDir, reqFile))) {
         console.error('\n❌ ERROR: ' + reqFile + ' not found in project directory');
         console.error('   Path: ' + this.projectDir);
-        console.error('\nDevTeam requires: ' + requiredFiles.join(', '));
+        console.error('\nRequired files: ' + requiredFiles.join(', '));
         console.error('Please create the missing files before starting.\n');
         process.exit(1);
       }
@@ -1106,6 +852,10 @@ class TeamDaemon {
     
     this.running = true;
     this.log('agent_start', 'daemon', 'DevTeam daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
+
+    // Start health monitor (agent timeout, task loop, no progress, memory, etc.)
+    this.healthMonitor = new DevTeamMonitor(this);
+    this.healthMonitor.start();
 
     // Ensure .team directory exists
     var teamDir = path.join(this.projectDir, '.team');
@@ -1141,6 +891,7 @@ class TeamDaemon {
   stop() {
     this.running = false;
     if (this.timer) clearInterval(this.timer);
+    if (this.healthMonitor) this.healthMonitor.stop();
     var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     try { fs.unlinkSync(pidPath); } catch {}
     this.log('agent_complete', 'daemon', 'DevTeam daemon stopped');
@@ -1154,10 +905,7 @@ function ts() {
 // --- Entry Point ---
 
 var projectDir = process.argv[2] || process.cwd();
-var devsArg = process.argv.find(function(a) { return a.startsWith('--devs='); });
-var maxDevs = devsArg ? parseInt(devsArg.split('=')[1]) : 3;
-
-var daemon = new TeamDaemon(projectDir, { devs: maxDevs });
+var daemon = new TeamDaemon(projectDir, {});
 
 // Process-level error protection
 process.on('uncaughtException', function(err) {

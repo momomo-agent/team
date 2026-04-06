@@ -86,6 +86,39 @@ function buildDynamicContext(projectDir) {
   return '\nCurrent State:\n' + parts.map(function(p) { return '- ' + p; }).join('\n') + '\n';
 }
 
+function buildGapsSummary(projectDir) {
+  const gapsDir = path.join(projectDir, '.team/gaps');
+  const parts = [];
+  for (const f of ['vision.json', 'prd.json', 'dbb.json']) {
+    try {
+      const g = JSON.parse(fs.readFileSync(path.join(gapsDir, f), 'utf8'));
+      const name = f.replace('.json', '');
+      const match = g.match != null ? g.match : g.coverage;
+      const gaps = (g.gaps || []).filter(function(gap) { return gap.status !== 'resolved'; });
+      if (gaps.length > 0) {
+        parts.push(name + ' (match: ' + match + '%):\n' + gaps.map(function(gap) { return '  - ' + gap.description; }).join('\n'));
+      }
+    } catch {}
+  }
+  if (parts.length === 0) return '';
+  return '\n\n## Monitor Gaps (MUST address in architecture)\n' + parts.join('\n\n') + '\n';
+}
+
+function buildExistingTasks(projectDir) {
+  const tasksDir = path.join(projectDir, '.team/tasks');
+  const tasks = [];
+  try {
+    for (const tid of fs.readdirSync(tasksDir)) {
+      try {
+        const t = JSON.parse(fs.readFileSync(path.join(tasksDir, tid, 'task.json'), 'utf8'));
+        tasks.push('- [' + t.status + '] ' + t.id + ': ' + t.title);
+      } catch {}
+    }
+  } catch {}
+  if (tasks.length === 0) return '';
+  return '\n\n## Existing Tasks (DO NOT create duplicates)\n' + tasks.join('\n') + '\n';
+}
+
 function buildPrompt(agentType, projectDir, agentId) {
   const baseType = agentType.replace(/-\d+$/, '');
   const config = loadConfig(projectDir);
@@ -119,6 +152,14 @@ function buildPrompt(agentType, projectDir, agentId) {
   if (baseType === 'pm') {
     var dynamicCtx = buildDynamicContext(projectDir);
     prompt = prompt.replace(/\{\{DYNAMIC_CONTEXT\}\}/g, dynamicCtx);
+  }
+
+  // Inject gaps summary + existing tasks for architect
+  if (baseType === 'architect') {
+    var gapsSummary = buildGapsSummary(projectDir);
+    var existingTasks = buildExistingTasks(projectDir);
+    prompt = prompt.replace(/\{\{GAPS_SUMMARY\}\}/g, gapsSummary);
+    prompt = prompt.replace(/\{\{EXISTING_TASKS\}\}/g, existingTasks);
   }
 
   return prompt;

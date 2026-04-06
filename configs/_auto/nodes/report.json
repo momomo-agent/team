@@ -1,0 +1,13 @@
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "id": "write_report",
+      "execute": {
+        "type": "agent",
+        "agent": "report_writer"
+      }
+    }
+  ],
+  "next": null
+}

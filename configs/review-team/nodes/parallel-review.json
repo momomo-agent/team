@@ -1,0 +1,12 @@
+{
+  "type": "sequence",
+  "description": "三维并行审查",
+  "steps": [
+    {
+      "id": "three-reviews",
+      "agents": ["security_reviewer", "perf_reviewer", "style_reviewer"],
+      "parallel": true
+    }
+  ],
+  "next": "summarize"
+}

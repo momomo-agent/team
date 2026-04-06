@@ -1,0 +1,26 @@
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "id": "init_docs_dir",
+      "execute": {
+        "type": "shell",
+        "command": "mkdir -p .team/docs"
+      }
+    },
+    {
+      "id": "collect_competitors",
+      "agents": [
+        "researcher",
+        "researcher",
+        "researcher"
+      ],
+      "parallel": true,
+      "execute": {
+        "type": "agent",
+        "agent": "researcher"
+      }
+    }
+  ],
+  "next": "analyze"
+}

@@ -1,0 +1,19 @@
+{
+  "type": "sequence",
+  "steps": [
+    {
+      "id": "analyze_competitors",
+      "agents": [
+        "analyst",
+        "analyst",
+        "analyst"
+      ],
+      "parallel": true,
+      "execute": {
+        "type": "agent",
+        "agent": "analyst"
+      }
+    }
+  ],
+  "next": "report"
+}

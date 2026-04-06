@@ -1,0 +1,16 @@
+{
+  "type": "sequence",
+  "description": "全局 Monitor 四维检查",
+  "steps": [
+    {
+      "id": "four-monitors",
+      "agents": ["vision_monitor", "prd_monitor", "dbb_monitor", "arch_monitor"],
+      "parallel": true
+    }
+  ],
+  "next": {
+    "if": "goalMet",
+    "then": "complete",
+    "else": "pm_decide"
+  }
+}

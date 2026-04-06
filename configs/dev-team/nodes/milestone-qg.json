@@ -1,0 +1,27 @@
+{
+  "type": "sequence",
+  "description": "里程碑 QG - 对照 DBB 验收",
+  "steps": [
+    {
+      "id": "qg-test",
+      "execute": { "type": "agent", "agent": "tester" },
+      "post": {
+        "tasks_in": "testing",
+        "success_status": "done",
+        "evidence": "test-result.md",
+        "on_fail_signal": { "contains": "fail", "not_contains": "0 fail", "status": "blocked" },
+        "on_no_evidence": "review",
+        "on_empty_evidence": "review"
+      }
+    },
+    {
+      "id": "qg-decision",
+      "execute": { "type": "agent", "agent": "pm" }
+    }
+  ],
+  "next": {
+    "if": "todoCount == 0 && reviewCount == 0 && inProgressCount == 0 && testingCount == 0",
+    "then": "monitor",
+    "else": "work_loop"
+  }
+}

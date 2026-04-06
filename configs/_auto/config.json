@@ -1,0 +1,40 @@
+{
+  "version": "1.0",
+  "description": "竞品分析：收集3个竞品信息，分别分析优劣势，然后写对比报告",
+  "requiredFiles": [],
+  "goal": {
+    "condition": "files.exists('.team/docs/competitive_analysis_report.md')",
+    "description": "完成竞品对比报告"
+  },
+  "workflow": {
+    "entry": "collect",
+    "context": {
+      "competitor_a_done": "files.exists('.team/docs/competitor_a.md')",
+      "competitor_b_done": "files.exists('.team/docs/competitor_b.md')",
+      "competitor_c_done": "files.exists('.team/docs/competitor_c.md')",
+      "all_collected": "files.exists('.team/docs/competitor_a.md') && files.exists('.team/docs/competitor_b.md') && files.exists('.team/docs/competitor_c.md')"
+    },
+    "nodes": {
+      "collect": "nodes/collect.json",
+      "analyze": "nodes/analyze.json",
+      "report": "nodes/report.json"
+    }
+  },
+  "agents": {
+    "researcher": {
+      "prompt": "prompts/researcher.md",
+      "model": "claude-sonnet-4"
+    },
+    "analyst": {
+      "prompt": "prompts/analyst.md",
+      "model": "claude-sonnet-4"
+    },
+    "report_writer": {
+      "prompt": "prompts/report_writer.md",
+      "model": "claude-sonnet-4"
+    }
+  },
+  "docs": {
+    "root": ".team/docs"
+  }
+}
