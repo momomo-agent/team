@@ -173,6 +173,19 @@ class WorkflowEngine {
       // 执行
       await this.executeStep(step, ctx);
 
+      // CR 分支：agent 执行后可能提交了 CR
+      if (step.cr && step.cr.enabled && step.execute && step.execute.type === 'agent') {
+        const crResult = await this.handleStepCR(step, ctx);
+        if (crResult === 'retry') {
+          // Upstream accepted CR and fixed — re-run this step
+          this.daemon.log('workflow', this.currentNode,
+            `[CR-RETRY] Re-running step ${step.id || i} after upstream fix`);
+          i--; // decrement to re-run same step
+          Object.assign(ctx, this.buildContext());
+          continue;
+        }
+      }
+
       // 后置保证
       if (step.post) {
         this.enforcePost(step.post);
@@ -181,6 +194,62 @@ class WorkflowEngine {
       // step 可能改变了世界状态，刷新 context
       Object.assign(ctx, this.buildContext());
     }
+  }
+
+  // ─── CR Branch: check for CRs after step execution ───
+  //
+  // When a step has cr.enabled, the agent can submit CRs via daemon.submitCR().
+  // After agent execution, engine checks for pending CRs from this agent.
+  // If found: route to upstream → upstream runs → re-run this step.
+  // Max retries controlled by cr.maxRetries (default 2).
+
+  async handleStepCR(step, ctx) {
+    if (!step.cr || !step.cr.enabled) return null;
+
+    const crDir = path.join(this.daemon.projectDir, '.team/change-requests');
+    if (!fs.existsSync(crDir)) return null;
+
+    const agent = step.execute.agent;
+    const maxRetries = step.cr.maxRetries || 2;
+
+    // Track retries per step
+    if (!this._crRetries) this._crRetries = {};
+    const retryKey = this.currentNode + '/' + (step.id || agent);
+    this._crRetries[retryKey] = (this._crRetries[retryKey] || 0);
+
+    if (this._crRetries[retryKey] >= maxRetries) {
+      this.daemon.log('workflow', this.currentNode,
+        `[CR] Max retries (${maxRetries}) reached for ${retryKey}, continuing`);
+      return null;
+    }
+
+    // Find pending CRs from this agent
+    let files;
+    try { files = fs.readdirSync(crDir).filter(f => f.endsWith('.json')); } catch { return null; }
+
+    for (const f of files) {
+      try {
+        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
+        if (cr.status !== 'pending' || cr.from !== agent) continue;
+
+        this.daemon.log('workflow', this.currentNode,
+          `[CR] ${cr.id}: ${cr.from} → ${cr.to} | ${cr.impact}`);
+
+        // Run upstream agent to fix the issue
+        this.daemon.log('workflow', this.currentNode,
+          `[CR-FIX] Running ${cr.to} to address: ${cr.proposal}`);
+        await this.daemon.runAgent(cr.to);
+
+        // Mark CR as handled
+        cr.status = 'accepted';
+        cr.reviewedAt = new Date().toISOString();
+        fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
+
+        this._crRetries[retryKey]++;
+        return 'retry'; // re-run this step
+      } catch {}
+    }
+    return null;
   }
 
   async executeStep(step, ctx) {
