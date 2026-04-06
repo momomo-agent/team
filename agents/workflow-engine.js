@@ -225,50 +225,77 @@ class WorkflowEngine {
 
   async executeStepGroup(exec, step, ctx) {
     const groupLabel = (this.config.groups && this.config.groups.label) || 'milestones';
-    const groupId = exec.group; // specific group id, or "active" for current active
+    const groupId = exec.group; // "active", "all", or specific id
     const configName = exec.config; // sub-workflow to run for this group
 
-    // Resolve group
-    let group = null;
-    if (groupId === 'active' || !groupId) {
-      // Find active group
-      const data = this.daemon.getMilestones();
-      group = (data.milestones || []).find(g =>
+    // Resolve groups
+    const data = this.daemon.getMilestones();
+    const allGroups = data.milestones || [];
+    let groups = [];
+
+    if (groupId === 'all') {
+      // All non-done groups
+      groups = allGroups.filter(g => g.status !== 'done' && g.status !== 'completed');
+    } else if (groupId === 'active' || !groupId) {
+      const active = allGroups.find(g =>
         g.status === 'active' || g.status === 'ready-for-work' || g.status === 'in-progress');
+      if (active) groups = [active];
     } else {
-      const data = this.daemon.getMilestones();
-      group = (data.milestones || []).find(g => g.id === groupId);
+      const found = allGroups.find(g => g.id === groupId);
+      if (found) groups = [found];
     }
 
-    if (!group) {
+    if (groups.length === 0) {
       this.daemon.log('workflow', this.currentNode,
-        `[GROUP] No active ${groupLabel} found, skipping`);
+        `[GROUP] No ${groupLabel} found for "${groupId}", skipping`);
       return;
     }
-
-    this.daemon.log('workflow', this.currentNode,
-      `[GROUP] ${groupLabel}/${group.id} (${group.name}) — ${(group.tasks || []).length} tasks`);
 
     if (!configName) {
-      // No sub-workflow — just mark the group context
-      this.daemon.log('workflow', this.currentNode,
-        `[GROUP] ${group.id} selected (no sub-workflow)`);
+      for (const g of groups) {
+        this.daemon.log('workflow', this.currentNode,
+          `[GROUP] ${groupLabel}/${g.id} (${g.name}) selected (no sub-workflow)`);
+      }
       return;
     }
 
-    // Run sub-workflow with group context injected
-    const subExec = {
-      type: 'workflow',
-      config: configName,
-      maxDepth: exec.maxDepth || 5,
-      context: Object.assign({}, exec.context || {}, {
-        currentGroup: group.id,
-        currentGroupName: group.name,
-        currentGroupTasks: (group.tasks || []).length
-      })
-    };
+    // Parallel or serial execution
+    if (exec.parallel && groups.length > 1) {
+      this.daemon.log('workflow', this.currentNode,
+        `[GROUP] ${groups.length} ${groupLabel} in parallel: ${groups.map(g => g.id).join(', ')}`);
 
-    await this.executeStepWorkflow(subExec, step, ctx);
+      await Promise.all(groups.map(group => {
+        const subExec = {
+          type: 'workflow',
+          config: configName,
+          maxDepth: exec.maxDepth || 5,
+          context: Object.assign({}, exec.context || {}, {
+            currentGroup: group.id,
+            currentGroupName: group.name,
+            currentGroupTasks: (group.tasks || []).length
+          })
+        };
+        return this.executeStepWorkflow(subExec, step, ctx);
+      }));
+    } else {
+      // Serial: one group at a time
+      for (const group of groups) {
+        this.daemon.log('workflow', this.currentNode,
+          `[GROUP] ${groupLabel}/${group.id} (${group.name}) — ${(group.tasks || []).length} tasks`);
+
+        const subExec = {
+          type: 'workflow',
+          config: configName,
+          maxDepth: exec.maxDepth || 5,
+          context: Object.assign({}, exec.context || {}, {
+            currentGroup: group.id,
+            currentGroupName: group.name,
+            currentGroupTasks: (group.tasks || []).length
+          })
+        };
+        await this.executeStepWorkflow(subExec, step, ctx);
+      }
+    }
   }
 
   // v3 兼容: step.agents 写法
