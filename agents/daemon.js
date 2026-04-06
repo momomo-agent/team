@@ -33,8 +33,6 @@ class TeamDaemon {
     this.running = false;
     this.busy = false;
     this.perfMonitorInterval = null;
-    this.techLeadFailCount = 0; // 修复 4: tech_lead 失败计数
-    this.architectFailCount = 0; // 修复 5: architect 失败计数
     
     // Event bus (append-only log + pub/sub)
     this.eventBus = new EventBus(projectDir);
@@ -96,19 +94,6 @@ class TeamDaemon {
 
   // --- Condition Evaluation ---
 
-  evaluateCondition(condition) {
-    if (!condition) return true;
-
-    if (condition === 'no-architecture') {
-      var archPath = path.join(this.projectDir, 'ARCHITECTURE.md');
-      if (!fs.existsSync(archPath)) return true;
-      return fs.readFileSync(archPath, 'utf8').trim().length < 100;
-    }
-
-    // Unknown condition — run by default
-    return true;
-  }
-
   // --- Structured Logging (Task 7) ---
 
   log(event, agent, details) {
@@ -151,11 +136,6 @@ class TeamDaemon {
       self.log('agent_start', agentType, desc);
       self.updateAgentStatus(agentType, 'running', desc);
 
-      // 修复 6: PM 运行前备份 kanban
-      if (baseType === 'pm') {
-        self.backupKanban();
-      }
-
       var proc = spawn('node', [RUNNER, agentType, self.projectDir], {
         stdio: ['ignore', 'inherit', 'inherit'] // no stdin (nohup-compatible)
       });
@@ -169,15 +149,6 @@ class TeamDaemon {
         if (code === 0) {
           self.updateAgentStatus(agentType, 'idle', null);
           self.log('agent_complete', agentType, 'completed successfully');
-
-          // 修复 4: tech_lead 成功后重置计数
-          if (baseType === 'tech_lead') {
-            self.techLeadFailCount = 0;
-          }
-          // 修复 5: architect 成功后重置计数
-          if (baseType === 'architect') {
-            self.architectFailCount = 0;
-          }
 
           // Generic success: reset fail count for agents with onFail config
           if (!self._failCounts) self._failCounts = {};
@@ -231,32 +202,6 @@ class TeamDaemon {
             return;
           }
 
-          // Legacy: tech_lead/architect specific fallbacks (backward compat)
-          if (baseType === 'tech_lead') {
-            self.techLeadFailCount++;
-            if (self.techLeadFailCount >= 3) {
-              self.log('error', 'tech_lead', 'Failed 3 times, creating minimal design.md template');
-              self.createMinimalDesign();
-              self.techLeadFailCount = 0;
-              resolve(true);
-              return;
-            }
-          }
-
-          if (baseType === 'architect') {
-            self.architectFailCount++;
-            if (self.architectFailCount >= 3) {
-              self.log('error', 'architect', 'Failed 3 times, creating minimal ARCHITECTURE.md template');
-              self.createMinimalArchitecture();
-              self.architectFailCount = 0;
-              resolve(true);
-              return;
-            }
-            
-            // 修复 7: architect 失败后恢复 CR 为 pending
-            self.restorePendingCRs();
-          }
-
           // Task 4: Error Recovery — retry once on failure
           var statusPath = path.join(self.projectDir, '.team/agent-status.json');
           var all = {};
@@ -271,11 +216,6 @@ class TeamDaemon {
           } else {
             self.updateAgentStatus(agentType, 'error', null, retryCount);
             self.log('error', agentType, 'failed (code=' + code + ') after retry, marking as error');
-            
-            // 修复 6: PM 失败后恢复 kanban
-            if (baseType === 'pm') {
-              self.restoreKanban();
-            }
             
             // Emit agent_complete event (failure)
             self.emit('agent_complete', { agent: agentType, success: false });
@@ -472,7 +412,7 @@ class TeamDaemon {
       this.notify('CR Anomaly Detected', pendingCount + ' pending CRs detected - possible duplicate submissions', 'cr_anomaly');
     }
 
-    // 修复 5: 真正触发 architect（不只是通知）
+    // Trigger architect for architecture-level CRs
     if (architectureIssues.length > 0) {
       this.log('agent_start', 'architect', 'Triggering architect for ' + architectureIssues.length + ' architecture issue(s)');
       this.notify('Architecture Issues Detected', architectureIssues.length + ' issue(s) need architect review', 'architecture_issue');
@@ -602,74 +542,6 @@ class TeamDaemon {
     return (data.milestones || []).find(function(m) {
       return m.status === 'active' || m.status === 'ready-for-work' || m.status === 'in-progress';
     }) || null;
-  }
-
-  // 修复 4: 创建最小化 design.md 模板
-  createMinimalDesign() {
-    var ms = this.getActiveMilestone();
-    if (!ms) return;
-
-    var designPath = path.join(this.projectDir, '.team/' + this.groupLabel, ms.id, 'design.md');
-    var template = '# ' + ms.name + ' - Technical Design\n\n' +
-      '## Architecture\n\n' +
-      '## Implementation Plan\n\n' +
-      '## Dependencies\n\n';
-
-    try {
-      fs.writeFileSync(designPath, template);
-      this.log('info', 'tech_lead', 'Created minimal design.md template at ' + designPath);
-    } catch (err) {
-      this.log('error', 'tech_lead', 'Failed to create design.md: ' + err.message);
-    }
-  }
-
-  // 修复 5: 创建最小化 ARCHITECTURE.md 模板
-  createMinimalArchitecture() {
-    var archPath = path.join(this.projectDir, 'ARCHITECTURE.md');
-    var template = '# Architecture\n\n' +
-      '## System Overview\n\n' +
-      '## Components\n\n' +
-      '## Data Flow\n\n';
-
-    try {
-      fs.writeFileSync(archPath, template);
-      this.log('info', 'architect', 'Created minimal ARCHITECTURE.md template at ' + archPath);
-    } catch (err) {
-      this.log('error', 'architect', 'Failed to create ARCHITECTURE.md: ' + err.message);
-    }
-  }
-
-  // kanban backup/restore no longer needed (task.json is source of truth)
-  backupKanban() {
-    // no-op: kanban derived from task files
-  }
-
-  restoreKanban() {
-    // no-op: kanban derived from task files
-  }
-
-  // 修复 7: architect 失败后恢复 CR 为 pending
-  restorePendingCRs() {
-    var crDir = path.join(this.projectDir, '.team/change-requests');
-    if (!fs.existsSync(crDir)) return;
-
-    try {
-      var files = fs.readdirSync(crDir).filter(function(f) { return f.endsWith('.json'); });
-      for (var i = 0; i < files.length; i++) {
-        var crPath = path.join(crDir, files[i]);
-        var cr = JSON.parse(fs.readFileSync(crPath, 'utf8'));
-        
-        // 恢复被标记为 "Converted to architect task" 的 CR
-        if (cr.status === 'resolved' && cr.resolution === 'Converted to architect task') {
-          cr.status = 'pending';
-          delete cr.resolution;
-          fs.writeFileSync(crPath, JSON.stringify(cr, null, 2));
-          this.log('info', 'architect', 'Restored CR ' + cr.id + ' to pending');
-        }
-      }
-    } catch (err) {
-      this.log('error', 'architect', 'Failed to restore CRs: ' + err.message);
-    }
   }
 
   isMilestoneComplete() {
