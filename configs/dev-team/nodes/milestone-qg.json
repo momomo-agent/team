@@ -1,6 +1,6 @@
 {
   "type": "sequence",
-  "description": "里程碑 QG - 对照 DBB 验收",
+  "description": "里程碑 QG — 对照 DBB 验收",
   "steps": [
     {
       "id": "qg-test",
@@ -17,10 +17,25 @@
     {
       "id": "qg-decision",
       "execute": { "type": "agent", "agent": "pm" }
+    },
+    {
+      "id": "cross-validate",
+      "when": "milestoneComplete",
+      "execute": { "type": "function", "fn": "crossValidateMonitors" }
+    },
+    {
+      "id": "mark-complete",
+      "when": "milestoneComplete",
+      "execute": { "type": "function", "fn": "markMilestoneComplete" }
+    },
+    {
+      "id": "auto-tag",
+      "when": "milestoneComplete",
+      "execute": { "type": "function", "fn": "autoGitCommit" }
     }
   ],
   "next": {
-    "if": "todoCount == 0 && reviewCount == 0 && inProgressCount == 0 && testingCount == 0",
+    "if": "milestoneComplete",
     "then": "monitor",
     "else": "work_loop"
   }

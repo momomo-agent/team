@@ -15,9 +15,9 @@ const fs = require('fs');
 const path = require('path');
 
 class WorkflowEngine {
-  constructor(config, daemon) {
+  constructor(config, runtime) {
     this.config = config;
-    this.daemon = daemon;
+    this.daemon = runtime;
     this.currentNode = null;
     this.visitedNodes = [];
     this.loopIterations = new Map();
@@ -292,7 +292,11 @@ class WorkflowEngine {
         await this.executeStepShell(exec, step, ctx);
         break;
       case 'function':
-        if (typeof exec.fn === 'function') await exec.fn(ctx);
+        if (typeof exec.fn === 'function') {
+          await exec.fn(ctx);
+        } else if (typeof exec.fn === 'string' && this.daemon.executeFunction) {
+          await this.daemon.executeFunction(exec.fn, ctx);
+        }
         break;
       case 'workflow':
         await this.executeStepWorkflow(exec, step, ctx);
@@ -893,6 +897,7 @@ class WorkflowEngine {
     const shortcuts = {
       'group_complete': () => ctx.isMilestoneComplete(),
       'milestone_complete': () => ctx.isMilestoneComplete(), // backward compat alias
+      'milestoneComplete': () => ctx.isMilestoneComplete(),
       'no-architecture': () => !ctx.hasArchitecture(),
     };
     if (shortcuts[expr]) return shortcuts[expr]();
