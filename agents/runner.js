@@ -37,7 +37,7 @@ function getAgentConfig(config, agentType) {
 
 // --- Prompt Building ---
 
-function buildDynamicContext(projectDir) {
+function buildDynamicContext(projectDir, config) {
   // Build dynamic context for PM agent (kanban state, gaps, milestones)
   const parts = [];
 
@@ -151,7 +151,7 @@ function buildPrompt(agentType, projectDir, agentId) {
 
   // Replace dynamic context for PM
   if (baseType === 'pm') {
-    var dynamicCtx = buildDynamicContext(projectDir);
+    var dynamicCtx = buildDynamicContext(projectDir, config);
     prompt = prompt.replace(/\{\{DYNAMIC_CONTEXT\}\}/g, dynamicCtx);
   }
 
@@ -168,6 +168,7 @@ function buildPrompt(agentType, projectDir, agentId) {
 
 function runAgent(agentType, projectDir) {
   var agentId = agentType;
+  var config = loadConfig(projectDir);
   var prompt = buildPrompt(agentType, projectDir, agentId);
 
   console.log('[' + new Date().toISOString() + '] Running ' + agentType + ' agent...');

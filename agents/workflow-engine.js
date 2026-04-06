@@ -23,18 +23,86 @@ class WorkflowEngine {
     this.loopIterations = new Map();
     this.transitionDepth = 0;
     this.maxTransitions = (config.workflow && config.workflow.maxTransitions) || 10000;
+
+    // Checkpoint support
+    this._checkpointDir = daemon.projectDir
+      ? path.join(daemon.projectDir, '.team', 'checkpoints')
+      : null;
+    this._workflowId = config._workflow || 'default';
+  }
+
+  // ─── Checkpoint: Save & Restore ───
+
+  _checkpointPath() {
+    if (!this._checkpointDir) return null;
+    return path.join(this._checkpointDir, this._workflowId + '.json');
+  }
+
+  saveCheckpoint(nodeId, stepIndex, extra) {
+    const cpPath = this._checkpointPath();
+    if (!cpPath) return;
+    fs.mkdirSync(this._checkpointDir, { recursive: true });
+    const cp = {
+      workflowId: this._workflowId,
+      nodeId,
+      stepIndex: stepIndex != null ? stepIndex : -1,
+      visitedNodes: [...this.visitedNodes],
+      loopIterations: Object.fromEntries(this.loopIterations),
+      transitionDepth: this.transitionDepth,
+      contextOverrides: this.daemon._contextOverrides || {},
+      timestamp: new Date().toISOString(),
+      ...extra
+    };
+    fs.writeFileSync(cpPath, JSON.stringify(cp, null, 2));
+  }
+
+  loadCheckpoint() {
+    const cpPath = this._checkpointPath();
+    if (!cpPath || !fs.existsSync(cpPath)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(cpPath, 'utf8'));
+    } catch { return null; }
+  }
+
+  clearCheckpoint() {
+    const cpPath = this._checkpointPath();
+    if (cpPath && fs.existsSync(cpPath)) {
+      fs.unlinkSync(cpPath);
+    }
   }
 
   // ─── Workflow Entry ───
 
   async execute() {
+    // Check for checkpoint to resume from
+    const cp = this.loadCheckpoint();
+    if (cp) {
+      this.daemon.log('workflow', null,
+        `[RESUME] Resuming from checkpoint: node=${cp.nodeId}, step=${cp.stepIndex}`);
+      // Restore state
+      this.visitedNodes = cp.visitedNodes || [];
+      this.loopIterations = new Map(Object.entries(cp.loopIterations || {}));
+      this.transitionDepth = cp.transitionDepth || 0;
+      if (cp.contextOverrides && this.daemon._contextOverrides) {
+        Object.assign(this.daemon._contextOverrides, cp.contextOverrides);
+      }
+      // Resume from checkpointed node
+      await this.executeNode(cp.nodeId, cp.stepIndex);
+      // Workflow complete after resume — clear checkpoint
+      this.clearCheckpoint();
+      return;
+    }
+
     const entry = this.config.workflow.entry || 'startup';
     await this.executeNode(entry);
+
+    // Workflow complete — clear checkpoint
+    this.clearCheckpoint();
   }
 
   // ─── Node Execution ───
 
-  async executeNode(nodeId) {
+  async executeNode(nodeId, resumeStepIndex) {
     if (!nodeId) return;
 
     this.transitionDepth++;
@@ -58,7 +126,7 @@ class WorkflowEngine {
 
     switch (node.type) {
       case 'sequence':
-        await this.runSteps(node.steps, ctx);
+        await this.runSteps(node.steps, ctx, resumeStepIndex);
         await this.followNext(node.next, ctx);
         break;
       case 'loop':
@@ -78,10 +146,22 @@ class WorkflowEngine {
 
   // ─── Step Execution (core) ───
 
-  async runSteps(steps, ctx) {
+  async runSteps(steps, ctx, resumeFromStep) {
     if (!steps) return;
 
-    for (const step of steps) {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+
+      // Skip already-executed steps when resuming
+      if (resumeFromStep != null && resumeFromStep >= 0 && i < resumeFromStep) {
+        this.daemon.log('workflow', this.currentNode,
+          `[SKIP-RESUME] step ${i} (${step.id || '?'}) already done`);
+        continue;
+      }
+
+      // Save checkpoint before each step
+      this.saveCheckpoint(this.currentNode, i);
+
       // 前置条件
       const when = step.when || step.trigger || step.condition;
       if (when && !this.evaluate(when, ctx)) {
