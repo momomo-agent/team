@@ -137,13 +137,17 @@ class TeamDaemon {
       self.updateAgentStatus(agentType, 'running', desc);
 
       var proc = spawn('node', [RUNNER, agentType, self.projectDir], {
-        stdio: ['ignore', 'inherit', 'inherit'] // no stdin (nohup-compatible)
+        stdio: ['ignore', 'inherit', 'inherit'], // no stdin (nohup-compatible)
+        detached: true // create process group so we can kill the whole tree
       });
 
       var timedOut = false;
       var timeout = setTimeout(function() {
         timedOut = true;
-        proc.kill('SIGTERM');
+        // Kill the entire process group (runner + claude + child tools)
+        try { process.kill(-proc.pid, 'SIGTERM'); } catch(e) {
+          try { proc.kill('SIGTERM'); } catch(e2) {}
+        }
       }, AGENT_TIMEOUT);
 
       proc.on('close', function(code) {
