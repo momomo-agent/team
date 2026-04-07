@@ -1,6 +1,7 @@
 {
   "type": "loop",
   "description": "PM 调度中心 — PM 评估后并行派发所有角色，全部完成后回 PM",
+  "maxIterations": 50,
   "steps": [
     {
       "id": "pm-dispatch",
