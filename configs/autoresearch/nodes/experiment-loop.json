@@ -28,7 +28,7 @@
     }
   ],
   "exit": {
-    "condition": "goalMet > 0 || (doneCount > 20)",
+    "condition": "goalMet > 0 || doneCount > 20 || agentEscalated > 0",
     "next": "analyze"
   }
 }

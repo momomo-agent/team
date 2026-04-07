@@ -11,7 +11,11 @@
       "id": "run-baseline",
       "when": "!hasBaseline",
       "execute": { "type": "agent", "agent": "evaluator" },
-      "ensure": { "files": [".team/baseline.json"] }
+      "validate": {
+        "files": [".team/baseline.json"],
+        "signal": "completed",
+        "maxRetries": 1
+      }
     }
   ],
   "next": "experiment_loop"

@@ -163,6 +163,16 @@ function buildPrompt(agentType, projectDir, agentId) {
     prompt = prompt.replace(/\{\{EXISTING_TASKS\}\}/g, existingTasks);
   }
 
+  // Append signal protocol to all agent prompts
+  prompt += '\n\n## Signal Protocol\n\n' +
+    'When you finish, output a signal block so the system knows your status:\n\n' +
+    '```signal\n{"status": "completed", "summary": "what you did"}\n```\n\n' +
+    'Status values:\n' +
+    '- `completed` — task done successfully\n' +
+    '- `blocked` — cannot proceed, need something external\n' +
+    '- `escalate` — tried but no progress possible, need human or different approach\n\n' +
+    'The signal block is **required**. Place it at the end of your output.\n';
+
   return prompt;
 }
 
@@ -231,15 +241,27 @@ function runAgent(agentType, projectDir) {
         break;
     }
 
-    execSync(cmd, {
+    // Capture agent output for signal extraction
+    var output = execSync(cmd, {
       cwd: projectDir,
-      stdio: 'inherit',
       timeout: timeout,
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024, // 10MB
       env: Object.assign({}, process.env, { CI: 'true' })
     });
 
+    // Write output to daemon log (replaces stdio: 'inherit')
+    if (output) process.stdout.write(output);
+
+    // Extract and write agent signal
+    writeAgentSignal(agentType, projectDir, output, 0);
+
     console.log('[' + new Date().toISOString() + '] ' + agentType + ' agent completed');
   } catch (err) {
+    // Write failure signal
+    var errOutput = (err.stdout || '') + (err.stderr || '');
+    writeAgentSignal(agentType, projectDir, errOutput, err.status || 1);
+
     if (err.message && (err.message.includes('524') || err.message.includes('timeout'))) {
       console.error('[' + new Date().toISOString() + '] ' + agentType + ' agent timed out');
     } else {
@@ -249,6 +271,59 @@ function runAgent(agentType, projectDir) {
   } finally {
     try { fs.unlinkSync(tmpPrompt); } catch {}
   }
+}
+
+/**
+ * Extract structured signal from agent output and write to .team/signals/<agent>.json
+ *
+ * Agents can emit signals by including a JSON block in their output:
+ *   ```signal
+ *   {"status": "done|blocked|escalate", "summary": "...", "artifacts": [...]}
+ *   ```
+ *
+ * If no explicit signal block, infer from output patterns:
+ * - Output contains TERMINATE/DONE/TASK_COMPLETED → done
+ * - Output contains BLOCKED/STUCK/ESCALATE → blocked
+ * - Exit code != 0 → failed
+ * - Otherwise → completed (implicit)
+ */
+function writeAgentSignal(agentType, projectDir, output, exitCode) {
+  var signalDir = path.join(projectDir, '.team/signals');
+  if (!fs.existsSync(signalDir)) fs.mkdirSync(signalDir, { recursive: true });
+
+  var signal = { agent: agentType, timestamp: new Date().toISOString(), exitCode: exitCode };
+
+  // Try to extract explicit signal block
+  var signalMatch = (output || '').match(/```signal\s*\n([\s\S]*?)\n```/);
+  if (signalMatch) {
+    try {
+      var explicit = JSON.parse(signalMatch[1].trim());
+      Object.assign(signal, explicit);
+    } catch {}
+  }
+
+  // If no explicit status, infer from output
+  if (!signal.status) {
+    if (exitCode !== 0) {
+      signal.status = 'failed';
+    } else if (/\b(ESCALATE|STUCK|NO_PROGRESS)\b/.test(output || '')) {
+      signal.status = 'escalate';
+    } else if (/\b(BLOCKED)\b/.test(output || '')) {
+      signal.status = 'blocked';
+    } else {
+      signal.status = 'completed';
+    }
+  }
+
+  // Extract summary: last non-empty line or explicit summary
+  if (!signal.summary) {
+    var lines = (output || '').trim().split('\n').filter(function(l) {
+      return l.trim() && !l.startsWith('[') && !l.startsWith('```');
+    });
+    signal.summary = (lines[lines.length - 1] || '').slice(0, 200);
+  }
+
+  fs.writeFileSync(path.join(signalDir, agentType + '.json'), JSON.stringify(signal, null, 2));
 }
 
 // --- CLI entry point ---

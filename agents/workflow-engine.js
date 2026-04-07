@@ -245,17 +245,24 @@ class WorkflowEngine {
         this.enforcePost(step.post);
       }
 
-      // 文件存在性检查：step 声明 ensure.files 后自动验证
-      if (step.ensure && step.ensure.files) {
-        for (const f of step.ensure.files) {
-          const fullPath = path.join(this.runtime.projectDir, f);
-          if (!fs.existsSync(fullPath)) {
+      // ─── Output Validation ───
+      // Unified validation: files exist, content matches, signal status
+      const validate = step.validate || step.ensure || null;
+      if (validate) {
+        const failures = this._validateStepOutput(validate, step);
+        if (failures.length > 0) {
+          this.runtime.log('workflow', this.currentNode,
+            `[VALIDATE-FAIL] ${step.id || '?'}: ${failures.join('; ')}`);
+          // Retry logic: re-run step up to maxRetries
+          const retryKey = this.currentNode + '/' + (step.id || i);
+          if (!this._validateRetries) this._validateRetries = {};
+          this._validateRetries[retryKey] = (this._validateRetries[retryKey] || 0) + 1;
+          const maxRetries = (validate.maxRetries != null ? validate.maxRetries : 1);
+          if (this._validateRetries[retryKey] <= maxRetries) {
             this.runtime.log('workflow', this.currentNode,
-              `[ENSURE-FAIL] ${f} not created by step ${step.id || '?'}`);
-            // Try to auto-create from experiments.log if it's baseline.json
-            if (f === '.team/baseline.json') {
-              this._tryCreateBaselineFromLog(fullPath);
-            }
+              `[VALIDATE-RETRY] ${step.id || '?'} (${this._validateRetries[retryKey]}/${maxRetries})`);
+            i--; // Re-run this step
+            continue;
           }
         }
       }
@@ -351,12 +358,14 @@ class WorkflowEngine {
     const agent = exec.agent;
     const parallel = exec.parallel || 1;
 
+    let signal = null;
+
     if (parallel <= 1) {
       // 串行：demand 决定跑几次
       const demand = step.demand ? this.evaluateExpr(step.demand, ctx) : 1;
       const count = Math.max(1, Math.min(demand, 1)); // 串行最多 1
       this.runtime.log('workflow', this.currentNode, `[EXEC] ${agent}`);
-      await this.runtime.runAgent(agent);
+      signal = await this.runtime.runAgent(agent);
     } else {
       // 并行
       const demand = step.demand ? this.evaluateExpr(step.demand, ctx) : 1;
@@ -367,12 +376,25 @@ class WorkflowEngine {
       }
       if (count === 1) {
         this.runtime.log('workflow', this.currentNode, `[EXEC] ${agent}`);
-        await this.runtime.runAgent(agent);
+        signal = await this.runtime.runAgent(agent);
       } else {
         const instances = [];
         for (let i = 1; i <= count; i++) instances.push(`${agent}-${i}`);
         this.runtime.log('workflow', this.currentNode, `[PARALLEL] ${instances.join(', ')}`);
         await this._runWithConcurrency(instances.map(a => () => this.runtime.runAgent(a)));
+      }
+    }
+
+    // Process agent signal for flow control
+    if (signal && typeof signal === 'object' && signal.status) {
+      if (signal.status === 'escalate' || signal.status === 'blocked') {
+        this.runtime.log('workflow', this.currentNode,
+          `[AGENT-SIGNAL] ${agent} → ${signal.status}: ${(signal.summary || '').slice(0, 80)}`);
+        // Store signal in context for exit conditions to use
+        if (!this.runtime._contextOverrides) this.runtime._contextOverrides = {};
+        this.runtime._contextOverrides['lastAgentSignal'] = signal.status;
+        this.runtime._contextOverrides['agentEscalated'] = signal.status === 'escalate' ? 1 : 0;
+        this.runtime._contextOverrides['agentBlocked'] = signal.status === 'blocked' ? 1 : 0;
       }
     }
   }
@@ -537,6 +559,66 @@ class WorkflowEngine {
       if (!this.runtime._contextOverrides) this.runtime._contextOverrides = {};
       Object.assign(this.runtime._contextOverrides, overrides.set_context);
     }
+  }
+
+  // ─── Output Validation ───
+
+  /**
+   * Validate step output against declared expectations.
+   * Returns array of failure descriptions (empty = all passed).
+   *
+   * Config format:
+   *   validate: {
+   *     files: [".team/baseline.json"],       // must exist after step
+   *     filesNotEmpty: ["experiments.log"],    // must exist and not be empty
+   *     signal: "completed",                  // agent signal must match
+   *     maxRetries: 1                         // how many times to retry on failure
+   *   }
+   */
+  _validateStepOutput(validate, step) {
+    const failures = [];
+
+    // File existence
+    if (validate.files) {
+      for (const f of validate.files) {
+        const fullPath = path.join(this.runtime.projectDir, f);
+        if (!fs.existsSync(fullPath)) {
+          failures.push(`file missing: ${f}`);
+          // Auto-recover baseline.json
+          if (f === '.team/baseline.json') {
+            this._tryCreateBaselineFromLog(fullPath);
+            if (fs.existsSync(fullPath)) {
+              failures.pop(); // Recovered, remove failure
+            }
+          }
+        }
+      }
+    }
+
+    // File not empty
+    if (validate.filesNotEmpty) {
+      for (const f of validate.filesNotEmpty) {
+        const fullPath = path.join(this.runtime.projectDir, f);
+        try {
+          const content = fs.readFileSync(fullPath, 'utf8').trim();
+          if (!content) failures.push(`file empty: ${f}`);
+        } catch {
+          failures.push(`file missing: ${f}`);
+        }
+      }
+    }
+
+    // Agent signal status
+    if (validate.signal && step.execute && step.execute.agent) {
+      const signal = this.runtime.readAgentSignal(step.execute.agent);
+      if (!signal) {
+        failures.push(`no signal from ${step.execute.agent}`);
+      } else if (signal.status !== validate.signal) {
+        failures.push(`signal ${signal.status} != expected ${validate.signal}`);
+      }
+    }
+
+    return failures;
   }
 
   // ─── Postcondition Enforcement ───
