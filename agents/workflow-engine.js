@@ -14,8 +14,21 @@
 const fs = require('fs');
 const path = require('path');
 
+const RuntimeInterface = require('../lib/runtime-interface');
+
 class WorkflowEngine {
   constructor(config, runtime) {
+    // Validate runtime implements the interface
+    const required = ['runAgent', 'getGroups', 'getKanban', 'isGroupComplete', 'executeFunction', 'log', 'on', 'off'];
+    for (const method of required) {
+      if (typeof runtime[method] !== 'function') {
+        throw new Error(`Runtime missing required method: ${method}`);
+      }
+    }
+    if (!runtime.projectDir) {
+      throw new Error('Runtime missing required property: projectDir');
+    }
+
     this.config = config;
     this.runtime = runtime;
     this.currentNode = null;
