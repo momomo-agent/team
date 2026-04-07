@@ -19,7 +19,7 @@ const Runtime = require('../lib/runtime');
 const DevTeamMonitor = require('./monitor');
 
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
-const AGENT_TIMEOUT = 2 * 60 * 60 * 1000; // 2 hours
+const AGENT_TIMEOUT = 65 * 60 * 1000; // 65 min (matches runtime.js)
 const DEVTEAM_ROOT = path.join(__dirname, '..');
 const DEFAULT_WORKFLOW = 'dev-team';
 const DEFAULT_CONFIG_PATH = path.join(DEVTEAM_ROOT, 'configs', DEFAULT_WORKFLOW, 'config.json');
