@@ -19,7 +19,10 @@ const RuntimeInterface = require('../lib/runtime-interface');
 class WorkflowEngine {
   constructor(config, runtime) {
     // Validate runtime implements the interface
-    const required = ['runAgent', 'getGroups', 'getKanban', 'isGroupComplete', 'executeFunction', 'log', 'on', 'off'];
+    const required = ['runAgent', 'getGroups', 'getKanban', 'isGroupComplete',
+      'executeFunction', 'log', 'on', 'off',
+      'readTask', 'updateTaskFields', 'listTaskDirs', 'readTaskFile',
+      'listCRFiles', 'readCRFile', 'updateCRFile', 'readGap', 'fileExists'];
     for (const method of required) {
       if (typeof runtime[method] !== 'function') {
         throw new Error(`Runtime missing required method: ${method}`);
@@ -241,13 +244,9 @@ class WorkflowEngine {
   async handleStepCR(step, ctx) {
     if (!step.cr || !step.cr.enabled) return null;
 
-    const crDir = path.join(this.runtime.projectDir, '.team/change-requests');
-    if (!fs.existsSync(crDir)) return null;
-
     const agent = step.execute.agent;
     const maxRetries = step.cr.maxRetries || 2;
 
-    // Track retries per step
     if (!this._crRetries) this._crRetries = {};
     const retryKey = this.currentNode + '/' + (step.id || agent);
     this._crRetries[retryKey] = (this._crRetries[retryKey] || 0);
@@ -258,30 +257,27 @@ class WorkflowEngine {
       return null;
     }
 
-    // Find pending CRs from this agent
-    let files;
-    try { files = fs.readdirSync(crDir).filter(f => f.endsWith('.json')); } catch { return null; }
+    const files = this.runtime.listCRFiles();
+    if (!files.length) return null;
 
     for (const f of files) {
       try {
-        const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
-        if (cr.status !== 'pending' || cr.from !== agent) continue;
+        const cr = this.runtime.readCRFile(f);
+        if (!cr || cr.status !== 'pending' || cr.from !== agent) continue;
 
         this.runtime.log('workflow', this.currentNode,
           `[CR] ${cr.id}: ${cr.from} → ${cr.to} | ${cr.impact}`);
-
-        // Run upstream agent to fix the issue
         this.runtime.log('workflow', this.currentNode,
           `[CR-FIX] Running ${cr.to} to address: ${cr.proposal}`);
         await this.runtime.runAgent(cr.to);
 
-        // Mark CR as handled
-        cr.status = 'accepted';
-        cr.reviewedAt = new Date().toISOString();
-        fs.writeFileSync(path.join(crDir, f), JSON.stringify(cr, null, 2));
+        this.runtime.updateCRFile(f, {
+          status: 'accepted',
+          reviewedAt: new Date().toISOString()
+        });
 
         this._crRetries[retryKey]++;
-        return 'retry'; // re-run this step
+        return 'retry';
       } catch {}
     }
     return null;
@@ -517,27 +513,21 @@ class WorkflowEngine {
   enforcePost(post) {
     if (!post.tasks_in) return;
 
-    const tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
-    if (!fs.existsSync(tasksDir)) return;
-
-    const dirs = fs.readdirSync(tasksDir).filter(d =>
-      fs.existsSync(path.join(tasksDir, d, 'task.json'))
-    );
+    const dirs = this.runtime.listTaskDirs();
 
     for (const dir of dirs) {
-      const taskPath = path.join(tasksDir, dir, 'task.json');
       try {
-        const task = JSON.parse(fs.readFileSync(taskPath, 'utf8'));
-        if (task.status !== post.tasks_in) continue;
+        const task = this.runtime.readTask(dir);
+        if (!task || task.status !== post.tasks_in) continue;
 
-        const newStatus = this.resolvePostStatus(post, path.join(tasksDir, dir));
+        const newStatus = this.resolvePostStatus(post, dir);
         if (newStatus && newStatus !== task.status) {
-          task.status = newStatus;
+          const updates = { status: newStatus };
           if (newStatus === (post.on_no_evidence || 'review') ||
               newStatus === (post.on_empty_evidence || 'review')) {
-            task.assignee = null; // unclaim on fallback
+            updates.assignee = null;
           }
-          fs.writeFileSync(taskPath, JSON.stringify(task, null, 2));
+          this.runtime.updateTaskFields(dir, updates);
           this.runtime.log('workflow', 'post',
             `[POST] ${dir}: ${post.tasks_in} → ${newStatus}`);
         }
@@ -548,17 +538,14 @@ class WorkflowEngine {
   }
 
   resolvePostStatus(post, taskDir) {
-    // 有 evidence 要求
     if (post.evidence) {
-      const evidencePath = path.join(taskDir, post.evidence);
-      if (!fs.existsSync(evidencePath)) {
+      const content = this.runtime.readTaskFile(taskDir, post.evidence);
+      if (content === null) {
         return post.on_no_evidence || post.fallback_status || 'review';
       }
-      const content = fs.readFileSync(evidencePath, 'utf8');
       if (content.trim().length === 0) {
         return post.on_empty_evidence || post.fallback_status || 'review';
       }
-      // 检查 failure signal
       if (post.on_fail_signal) {
         const lower = content.toLowerCase();
         const sig = post.on_fail_signal;
@@ -818,7 +805,7 @@ class WorkflowEngine {
       visitedNodes: [...this.visitedNodes],
       iteration: this.loopIterations.get(this.currentNode) || 0,
       isGroupComplete: () => this.runtime.isGroupComplete(),
-      hasArchitecture: () => fs.existsSync(path.join(this.runtime.projectDir, 'ARCHITECTURE.md')),
+      hasArchitecture: () => this.runtime.fileExists('ARCHITECTURE.md'),
       Math,
     };
 
@@ -852,10 +839,8 @@ class WorkflowEngine {
         byStatus: (status) => {
           const kanban = this.runtime.getKanban();
           return (kanban[status] || []).map(id => {
-            try {
-              return JSON.parse(fs.readFileSync(
-                path.join(projectDir, '.team/tasks', id, 'task.json'), 'utf8'));
-            } catch { return {}; }
+            try { return this.runtime.readTask(id) || {}; }
+            catch { return {}; }
           });
         },
         all: () => {
@@ -864,19 +849,15 @@ class WorkflowEngine {
             kanban.todo || [], kanban.inProgress || [], kanban.review || [],
             kanban.testing || [], kanban.done || [], kanban.blocked || []);
           return all.map(id => {
-            try {
-              return JSON.parse(fs.readFileSync(
-                path.join(projectDir, '.team/tasks', id, 'task.json'), 'utf8'));
-            } catch { return {}; }
+            try { return this.runtime.readTask(id) || {}; }
+            catch { return {}; }
           });
         }
       },
       gaps: {
         read: (name) => {
-          try {
-            return JSON.parse(fs.readFileSync(
-              path.join(projectDir, '.team/gaps', name + '.json'), 'utf8'));
-          } catch { return { match: 100 }; }
+          try { return this.runtime.readGap(name) || { match: 100 }; }
+          catch { return { match: 100 }; }
         }
       },
       milestones: {
@@ -894,7 +875,7 @@ class WorkflowEngine {
         }
       },
       files: {
-        exists: (p) => fs.existsSync(path.join(projectDir, p))
+        exists: (p) => this.runtime.fileExists(p)
       }
     };
   }
