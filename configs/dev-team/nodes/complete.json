@@ -1,6 +1,6 @@
 {
   "type": "sequence",
-  "description": "项目完成 — 最终验证 + 归档",
+  "description": "项目完成 — 最终验证 + 归档 + 报告",
   "steps": [
     {
       "id": "final-monitors",
@@ -17,12 +17,12 @@
       "execute": { "type": "function", "fn": "crossValidateMonitors" }
     },
     {
-      "id": "final-tag",
-      "execute": { "type": "function", "fn": "autoGitCommit" }
+      "id": "generate-report",
+      "execute": { "type": "function", "fn": "generateReport" }
     },
     {
-      "id": "completion-log",
-      "execute": { "type": "noop" }
+      "id": "final-tag",
+      "execute": { "type": "function", "fn": "autoGitCommit" }
     }
   ]
 }

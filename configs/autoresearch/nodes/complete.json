@@ -1,7 +1,11 @@
 {
   "type": "sequence",
-  "description": "实验完成",
+  "description": "实验完成 — 报告 + 归档",
   "steps": [
+    {
+      "id": "generate-report",
+      "execute": { "type": "function", "fn": "generateReport" }
+    },
     {
       "id": "tag-results",
       "execute": { "type": "function", "fn": "autoGitCommit" }
