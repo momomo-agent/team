@@ -551,7 +551,12 @@ async function refresh() {
     // 渲染左侧 tabs
     for (var i = 0; i < leftTabs.length; i++) {
       var tab = leftTabs[i];
-      var tabId = tab.id || ('tab-' + i);
+      // Derive tabId same way as initializeTabs (gapKey from components)
+      var gapKey = null;
+      if (tab.components) {
+        tab.components.forEach(function(c) { if (c.gapKey) gapKey = c.gapKey; });
+      }
+      var tabId = tab.id || gapKey || ('tab-' + i);
       var pane = document.getElementById('pane-' + tabId);
       if (!pane) continue;
       
