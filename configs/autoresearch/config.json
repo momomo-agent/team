@@ -21,7 +21,6 @@
       {
         "id": "metrics",
         "title": "Metrics",
-        "badge": { "source": ".team/baseline.json", "field": "seedRecall", "suffix": "%" },
         "components": [
           { "component": "JsonlChart", "source": "experiments.log" },
           { "component": "JsonView", "source": ".team/stuck-signal.json", "label": "Stuck Signal" }
