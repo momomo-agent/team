@@ -97,6 +97,23 @@ class TeamDaemon {
     var config = this.loadWorkflowConfig();
     this.runtime.config = config;
 
+    // ─── Validate workflow before starting ───
+    var validator = require('../lib/workflow-validator');
+    var workflowName = config._workflow || 'dev-team';
+    var configDir = path.join(DEVTEAM_ROOT, 'configs', workflowName);
+    var validResult = validator.validate(config, { configDir: configDir, projectDir: this.projectDir });
+    if (!validResult.valid) {
+      console.error('\n❌ Workflow validation failed:');
+      validResult.errors.forEach(function(e) { console.error('  ' + e.toString()); });
+      console.error('\nFix errors before starting daemon.\n');
+      process.exit(1);
+    }
+    if (validResult.warnings.length > 0) {
+      validResult.warnings.forEach(function(e) {
+        this.runtime.log('workflow', 'validator', e.toString());
+      }.bind(this));
+    }
+
     // Clean up from previous runs
     this.runtime.killOrphanAgents();
     this.runtime.resetStuckAgents();

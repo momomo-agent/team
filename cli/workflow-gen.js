@@ -164,6 +164,23 @@ async function generate(goal, projectDir) {
     }
   }
 
+  // ─── Validate generated workflow ───
+  const { validate } = require('../lib/workflow-validator');
+  const result = validate(workflow.config, { configDir: AUTO_DIR });
+
+  if (result.errors.length > 0) {
+    console.log('\n❌ Validation errors:');
+    result.errors.forEach(e => console.log('  ' + e.toString()));
+    console.log('\nWorkflow written but has errors. Fix before running.');
+  }
+  if (result.warnings.length > 0) {
+    console.log('\n⚠️  Warnings:');
+    result.warnings.forEach(e => console.log('  ' + e.toString()));
+  }
+  if (result.valid) {
+    console.log('\n✅ Validation passed');
+  }
+
   // 摘要
   const agentCount = Object.keys(workflow.config.agents || {}).length;
   const nodeCount = Object.keys(workflow.nodes || {}).length;
