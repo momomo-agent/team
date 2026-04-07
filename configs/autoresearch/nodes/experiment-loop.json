@@ -1,11 +1,16 @@
 {
   "type": "loop",
-  "description": "实验循环 — stuck检测→假设→修改→评测→决策",
+  "description": "实验循环 — stuck检测→回顾→假设→修改→评测",
   "maxIterations": 30,
   "steps": [
     {
       "id": "stuck-check",
       "execute": { "type": "function", "fn": "checkStuckExperiment" }
+    },
+    {
+      "id": "review",
+      "when": "doneCount > 0 && (doneCount % 3 === 0 || consecutiveReverts >= 3)",
+      "execute": { "type": "agent", "agent": "reviewer" }
     },
     {
       "id": "hypothesize",

@@ -14,11 +14,15 @@ node {{TASK_MANAGER}} <command> {{projectDir}}
 
 ### 每次被调用时：
 
-1. **检查 stuck 信号**
+1. **检查 stuck 信号和方向回顾**
    读 `.team/stuck-signal.json`（如果存在）：
    - `escalation: "none"` → 正常提假设
    - `escalation: "structure"` → 不要再调参数！必须做算法级改动
    - `escalation: "data"` → 参数和算法都试过了。必须从数据层面解决（添加图谱节点/边），或承认问题不可解并设 goalMet=1
+
+   读 `.team/review.md`（如果存在）：
+   - reviewer 分析了哪些方向已经试过、哪些未探索
+   - **优先按 reviewer 的方向建议来提假设**
 
 2. **读取当前指标**
    - 读 `.team/baseline.json` 了解基线

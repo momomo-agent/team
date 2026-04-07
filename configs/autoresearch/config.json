@@ -14,7 +14,8 @@
       "blockedCount": "tasks.byStatus('blocked').length",
       "hasEval": "files.exists('eval.js') || files.exists('eval.sh') || files.exists('eval.py') ? 1 : 0",
       "hasBaseline": "files.exists('.team/baseline.json') ? 1 : 0",
-      "goalMet": "0"
+      "goalMet": "0",
+      "consecutiveReverts": "0"
     },
     "nodes": {
       "setup": "nodes/setup.json",
@@ -49,6 +50,12 @@
       "prompt": "prompts/research/setup.md",
       "model": "claude-sonnet-4",
       "description": "建立基线和评测脚本",
+      "backend": "claude-code"
+    },
+    "reviewer": {
+      "prompt": "prompts/research/reviewer.md",
+      "model": "claude-sonnet-4",
+      "description": "回顾实验历史，发现模式，调整方向",
       "backend": "claude-code"
     }
   },
