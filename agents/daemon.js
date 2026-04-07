@@ -213,6 +213,8 @@ class TeamDaemon {
     if (this.timer) clearInterval(this.timer);
     if (this.perfMonitorInterval) clearInterval(this.perfMonitorInterval);
     if (this.healthMonitor) this.healthMonitor.stop();
+    // Reset all agent statuses to idle
+    this.runtime.resetStuckAgents();
     var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     try { fs.unlinkSync(pidPath); } catch {}
     this.runtime.log('agent_complete', 'daemon', 'DevTeam daemon stopped');
