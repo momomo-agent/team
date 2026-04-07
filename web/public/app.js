@@ -44,7 +44,12 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   // v3.1: components array
   else if (leftTabs.length > 0 && leftTabs[0].components) {
     var mapped = leftTabs.map(function(tab, i) {
-      return { id: 'tab-' + i, title: tab.title, components: tab.components };
+      // Extract gapKey from components for match badge linking
+      var gapKey = null;
+      if (tab.components) {
+        tab.components.forEach(function(c) { if (c.gapKey) gapKey = c.gapKey; });
+      }
+      return { id: gapKey || ('tab-' + i), title: tab.title, components: tab.components, badge: tab.badge };
     });
     initializeTabs(mapped);
     
@@ -781,7 +786,7 @@ function renderTopBar(status, agents) {
 // --- Tab match badges ---
 function updateTabMatches(status, gaps) {
   var matchData = status.match || {};
-  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb, arch: matchData.architecture };
+  var tabs = { vision: matchData.vision, prd: matchData.prd, dbb: matchData.dbb, architecture: matchData.architecture };
 
   Object.keys(tabs).forEach(function(key) {
     var val = tabs[key];
