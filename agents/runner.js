@@ -216,7 +216,7 @@ function runAgent(agentType, projectDir) {
                   (config.defaults && config.defaults.backend) ||
                   'claude-code';
     var model = (agentConf && agentConf.model) || '';
-    var timeout = 2 * 60 * 60 * 1000; // 2 hours
+    var timeout = 15 * 60 * 1000; // 15 minutes — if not done, it's stuck
 
     var cmd;
     switch (backend) {
