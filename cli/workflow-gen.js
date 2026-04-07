@@ -76,7 +76,52 @@ Shell steps: 可执行任意 shell 命令（收集信息、生成文件等）
   "prompts": {
     "agent_name.md": "# Role\\n\\n你是...\\n\\n## 任务\\n\\n..."
   }
-}`;
+}
+
+## Dashboard 配置
+
+config 里必须包含 dashboard 字段，定义可视化面板。格式：
+
+{
+  "dashboard": {
+    "left": [
+      {
+        "title": "Tab显示名",
+        "components": [
+          {
+            "component": "MarkdownView",
+            "path": "相对路径.md",
+            "gapKey": "对应的gap名",
+            "label": "显示标签"
+          }
+        ],
+        "badge": {
+          "source": ".team/gaps/xxx.json",
+          "field": "match"
+        }
+      }
+    ],
+    "right": [
+      {
+        "title": "Pipeline",
+        "components": [{ "component": "KanbanBoard" }]
+      },
+      {
+        "title": "Agents",
+        "components": [{ "component": "AgentStatus" }]
+      }
+    ]
+  }
+}
+
+可用的 component 类型：
+- MarkdownView: 显示 markdown 文件，path 指定文件路径，gapKey 关联 gap 数据
+- KanbanBoard: 看板视图，显示所有 task 状态
+- AgentStatus: agent 运行状态面板
+- GapsList: gap 列表，source 指定 gap JSON 路径
+
+根据项目目标，左侧 tabs 应该包含项目的核心文档（如 Vision、PRD、验收标准等），
+右侧固定放 Pipeline 和 Agents。每个文档 tab 要关联对应的 gap monitor。`;
 
 async function generate(goal, projectDir) {
   console.log(`\n🎯 目标: ${goal}`);
