@@ -157,19 +157,33 @@ function getMilestones() {
 }
 
 function getAllGaps() {
-  const monitorDir = path.join(projectDir, '.team/monitor');
   const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
   const result = {};
 
-  // Read monitor outputs from config
+  // Strategy 1: Read from config.docs.items[].monitor.output
   if (config.docs && config.docs.items) {
     config.docs.items.forEach(function(doc) {
       if (doc.monitor && doc.monitor.output) {
         const data = readJSON(path.join(projectDir, doc.monitor.output));
         if (data) {
-          // Normalize: support both 'match' and 'score'
           if (data.match == null && data.score != null) data.match = data.score;
           result[doc.id] = data;
+        }
+      }
+    });
+  }
+
+  // Strategy 2: Fallback — scan .team/gaps/ directory directly
+  const gapsDir = path.join(projectDir, '.team/gaps');
+  if (fs.existsSync(gapsDir)) {
+    const gapFiles = fs.readdirSync(gapsDir).filter(f => f.endsWith('.json'));
+    gapFiles.forEach(function(f) {
+      const id = f.replace('.json', '');
+      if (!result[id]) {  // Don't override config-based data
+        const data = readJSON(path.join(gapsDir, f));
+        if (data) {
+          if (data.match == null && data.score != null) data.match = data.score;
+          result[id] = data;
         }
       }
     });
@@ -299,7 +313,7 @@ const server = http.createServer((req, res) => {
     });
   }
   else if (pathname.startsWith('/file/')) {
-    // v3.1: 按 path 直接获取文档
+    // v3.1: 按 path 直接获取文档或 JSON
     const filePath = pathname.replace('/file/', '');
     const fullPath = path.join(projectDir, filePath);
     
@@ -309,8 +323,14 @@ const server = http.createServer((req, res) => {
       return;
     }
     
-    const data = parseMarkdown(fullPath);
-    sendJSON(data);
+    // JSON files: return as-is
+    if (filePath.endsWith('.json')) {
+      const data = readJSON(fullPath);
+      sendJSON(data || {});
+    } else {
+      const data = parseMarkdown(fullPath);
+      sendJSON(data);
+    }
   }
   else if (pathname.startsWith('/doc/')) {
     const docId = pathname.replace('/doc/', '');
