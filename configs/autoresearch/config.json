@@ -2,6 +2,15 @@
   "version": "1.0",
   "_workflow": "autoresearch",
   "groups": { "label": "experiments" },
+  "docs": {
+    "root": ".",
+    "items": [
+      { "id": "vision", "name": "Vision", "file": ".team/docs/VISION.md", "showInUI": true },
+      { "id": "review", "name": "Review", "file": ".team/review.md", "showInUI": true },
+      { "id": "stuck", "name": "Stuck Signal", "file": ".team/stuck-signal.json", "showInUI": true },
+      { "id": "conclusion", "name": "Conclusion", "file": ".team/conclusion.md", "showInUI": true }
+    ]
+  },
   "workflow": {
     "entry": "setup",
     "maxConcurrency": 2,
