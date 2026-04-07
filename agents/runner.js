@@ -169,6 +169,8 @@ function buildPrompt(agentType, projectDir, agentId) {
 function runAgent(agentType, projectDir) {
   var agentId = agentType;
   var config = loadConfig(projectDir);
+  var baseType = agentType.replace(/-\d+$/, '');
+  var agentConf = getAgentConfig(config, agentType);
   var prompt = buildPrompt(agentType, projectDir, agentId);
 
   console.log('[' + new Date().toISOString() + '] Running ' + agentType + ' agent...');
@@ -190,15 +192,51 @@ function runAgent(agentType, projectDir) {
   fs.writeFileSync(tmpPrompt, prompt);
 
   try {
-    execSync(
-      'claude --print --dangerously-skip-permissions < "' + tmpPrompt + '"',
-      {
-        cwd: projectDir,
-        stdio: 'inherit',
-        timeout: 2 * 60 * 60 * 1000, // 2 hours
-        env: Object.assign({}, process.env, { CI: 'true' }) // force non-interactive mode (vitest run, etc.)
-      }
-    );
+    // Determine backend from config
+    // Priority: agent.backend > config.defaults.backend > 'claude-code'
+    var backend = (agentConf && agentConf.backend) ||
+                  (config.defaults && config.defaults.backend) ||
+                  'claude-code';
+    var model = (agentConf && agentConf.model) || '';
+    var timeout = 2 * 60 * 60 * 1000; // 2 hours
+
+    var cmd;
+    switch (backend) {
+      case 'claude-code':
+        // Claude Code CLI — full agent with file access
+        cmd = 'claude --print --dangerously-skip-permissions < "' + tmpPrompt + '"';
+        break;
+
+      case 'codex':
+        // OpenAI Codex CLI
+        cmd = 'codex exec --full-auto "$(cat \'' + tmpPrompt + '\')"';
+        break;
+
+      case 'llm':
+        // Generic LLM CLI (~/LOCAL/momo-agent/tools/llm/llm.js)
+        // For agents that only need text output, not file manipulation
+        var modelFlag = model ? ' --model ' + model : '';
+        cmd = 'cat "' + tmpPrompt + '" | llm' + modelFlag;
+        break;
+
+      case 'shell':
+        // Direct shell command from config
+        cmd = (agentConf && agentConf.command) || 'echo "no command configured"';
+        break;
+
+      default:
+        // Treat backend as a command template
+        // {prompt} replaced with prompt file path
+        cmd = backend.replace(/\{prompt\}/g, tmpPrompt);
+        break;
+    }
+
+    execSync(cmd, {
+      cwd: projectDir,
+      stdio: 'inherit',
+      timeout: timeout,
+      env: Object.assign({}, process.env, { CI: 'true' })
+    });
 
     console.log('[' + new Date().toISOString() + '] ' + agentType + ' agent completed');
   } catch (err) {
