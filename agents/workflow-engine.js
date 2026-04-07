@@ -230,6 +230,21 @@ class WorkflowEngine {
         this.enforcePost(step.post);
       }
 
+      // 文件存在性检查：step 声明 ensure.files 后自动验证
+      if (step.ensure && step.ensure.files) {
+        for (const f of step.ensure.files) {
+          const fullPath = path.join(this.runtime.projectDir, f);
+          if (!fs.existsSync(fullPath)) {
+            this.runtime.log('workflow', this.currentNode,
+              `[ENSURE-FAIL] ${f} not created by step ${step.id || '?'}`);
+            // Try to auto-create from experiments.log if it's baseline.json
+            if (f === '.team/baseline.json') {
+              this._tryCreateBaselineFromLog(fullPath);
+            }
+          }
+        }
+      }
+
       // step 可能改变了世界状态，刷新 context
       Object.assign(ctx, this.buildContext());
     }
@@ -510,6 +525,36 @@ class WorkflowEngine {
   }
 
   // ─── Postcondition Enforcement ───
+
+  _tryCreateBaselineFromLog(baselinePath) {
+    // Fallback: if evaluator forgot to create baseline.json, extract from experiments.log
+    const logPath = path.join(this.runtime.projectDir, 'experiments.log');
+    if (!fs.existsSync(logPath)) return;
+    try {
+      const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n').filter(Boolean);
+      // Find first line with numeric metrics (seedRecall, etc.)
+      for (const line of lines) {
+        const entry = JSON.parse(line);
+        // Check if it has metrics.after or direct numeric fields
+        const metrics = entry.metrics?.after || {};
+        const directMetrics = {};
+        for (const [k, v] of Object.entries(entry)) {
+          if (typeof v === 'number' && k !== 'timestamp') directMetrics[k] = v;
+        }
+        const baseline = Object.keys(metrics).length > 0 ? metrics : directMetrics;
+        if (Object.keys(baseline).length > 0) {
+          fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
+          fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
+          this.runtime.log('workflow', 'ensure',
+            `[ENSURE-RECOVER] Created baseline.json from experiments.log: ${JSON.stringify(baseline)}`);
+          return;
+        }
+      }
+    } catch (err) {
+      this.runtime.log('workflow', 'ensure',
+        `[ENSURE-RECOVER] Failed to create baseline from log: ${err.message}`);
+    }
+  }
 
   enforcePost(post) {
     if (!post.tasks_in) return;

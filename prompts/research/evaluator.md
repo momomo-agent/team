@@ -12,11 +12,12 @@ node {{TASK_MANAGER}} <command> {{projectDir}}
 
 ## 你的职责
 
-1. **找到待评测的任务**
+1. **检查基线是否存在**
    ```bash
-   node {{TASK_MANAGER}} list --status review {{projectDir}}
-   node {{TASK_MANAGER}} list --status testing {{projectDir}}
+   test -f .team/baseline.json && echo "EXISTS" || echo "MISSING"
    ```
+   如果 MISSING → 这是首次评测，跳到步骤 2 跑 eval，然后执行步骤 3a（创建基线）。
+   如果 EXISTS → 正常流程，步骤 2 → 3b → 4。
 
 2. **跑 eval**
    ```bash
@@ -24,10 +25,26 @@ node {{TASK_MANAGER}} <command> {{projectDir}}
    node eval.js 2>&1 || bash eval.sh 2>&1 || python3 eval.py 2>&1
    ```
 
-3. **对比基线**
+3a. **首次运行：创建基线**（仅当 `.team/baseline.json` 不存在时）
+   把 eval 输出的数值指标写入 `.team/baseline.json`：
+   ```bash
+   # 示例（根据实际 eval 输出调整字段名）
+   cat > .team/baseline.json << 'EOF'
+   {"seedRecall": 96, "avgLatency": 6.5, "assocPass": 2, "assocTotal": 3}
+   EOF
+   ```
+   同时追加实验日志到 `experiments.log`，然后**结束**（不做 keep/revert 决策）。
+
+3b. **对比基线**（正常流程）
    - 读 `.team/baseline.json` 获取基线指标
    - 对比当前 eval 输出和基线
    - 计算每个指标的变化量和百分比
+
+4. **找到待评测的任务**
+   ```bash
+   node {{TASK_MANAGER}} list --status review {{projectDir}}
+   node {{TASK_MANAGER}} list --status testing {{projectDir}}
+   ```
 
 4. **决策**
 

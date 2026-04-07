@@ -10,7 +10,8 @@
     {
       "id": "run-baseline",
       "when": "!hasBaseline",
-      "execute": { "type": "agent", "agent": "evaluator" }
+      "execute": { "type": "agent", "agent": "evaluator" },
+      "ensure": { "files": [".team/baseline.json"] }
     }
   ],
   "next": "experiment_loop"
