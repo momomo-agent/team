@@ -225,6 +225,168 @@ function status() {
   console.log('');
 }
 
+function report() {
+  const dir = requireProject();
+  const config = readJSON(path.join(dir, '.team/config.json'));
+  const now = new Date();
+
+  console.log('\n══════════════════════════════════════════');
+  console.log('  DevTeam Report — ' + (config.name || path.basename(dir)));
+  console.log('  ' + now.toISOString().replace('T', ' ').slice(0, 19));
+  console.log('══════════════════════════════════════════');
+
+  // 1. Daemon status
+  const pidPath = path.join(dir, '.team/daemon.pid');
+  let daemonRunning = false;
+  let daemonPid = null;
+  if (fs.existsSync(pidPath)) {
+    daemonPid = readFile(pidPath).trim();
+    try { process.kill(parseInt(daemonPid), 0); daemonRunning = true; } catch {}
+  }
+  console.log('\n┌─ Daemon');
+  console.log('│  Status: ' + (daemonRunning ? '🟢 RUNNING (pid ' + daemonPid + ')' : '⚪ STOPPED'));
+
+  // Workflow info
+  const wf = config._workflow || config.workflow || 'dev-team';
+  console.log('│  Workflow: ' + (typeof wf === 'string' ? wf : wf._workflow || 'default'));
+
+  // Uptime from daemon.log first entry
+  const EventBus = require(path.join(DEVTEAM_ROOT, 'lib/event-bus.js'));
+  const eb = new EventBus(dir);
+  const recentEvents = eb.recent(500);
+
+  if (recentEvents.length > 0) {
+    const first = recentEvents[0];
+    const last = recentEvents[recentEvents.length - 1];
+    console.log('│  Events: ' + recentEvents.length + ' total');
+    console.log('│  First: ' + (first.time || '?'));
+    console.log('│  Latest: ' + (last.time || '?'));
+  }
+  console.log('└');
+
+  // 2. Agent status
+  const agentStatus = readJSON(path.join(dir, '.team/agent-status.json')) || {};
+  const running = [];
+  const errors = [];
+  const idle = [];
+  const retrying = [];
+
+  for (const [name, info] of Object.entries(agentStatus)) {
+    const entry = { name, ...info };
+    if (info.status === 'running') running.push(entry);
+    else if (info.status === 'error' || info.status === 'timeout') errors.push(entry);
+    else if (info.status === 'retrying') retrying.push(entry);
+    else idle.push(entry);
+  }
+
+  console.log('\n┌─ Agents (' + Object.keys(agentStatus).length + ' total)');
+  if (running.length > 0) {
+    console.log('│  🔵 Running:');
+    for (const a of running) {
+      const elapsed = Math.round((now - new Date(a.lastRun)) / 60000);
+      console.log('│    ' + a.name + ' — ' + elapsed + 'min ago' + (a.currentTask ? ' → ' + a.currentTask : ''));
+    }
+  }
+  if (retrying.length > 0) {
+    console.log('│  🟡 Retrying:');
+    for (const a of retrying) console.log('│    ' + a.name + ' (attempt ' + (a.retryCount || '?') + ')');
+  }
+  if (errors.length > 0) {
+    console.log('│  🔴 Errors:');
+    for (const a of errors) console.log('│    ' + a.name + ' — ' + a.status + ' at ' + (a.lastRun || '?').slice(11, 19));
+  }
+  if (running.length === 0 && errors.length === 0 && retrying.length === 0) {
+    console.log('│  All idle');
+  }
+  console.log('└');
+
+  // 3. Match / Gaps
+  console.log('\n┌─ Match');
+  for (const level of ['vision', 'prd', 'dbb', 'architecture']) {
+    const g = readJSON(path.join(dir, '.team/gaps/' + level + '.json'));
+    const match = g ? (g.match != null ? g.match : (g.coverage != null ? g.coverage : null)) : null;
+    const bar = match != null ? ('█'.repeat(Math.round(match / 5)) + '░'.repeat(20 - Math.round(match / 5))) : '?'.repeat(20);
+    const pct = match != null ? (match + '%').padStart(4) : '  ? ';
+    console.log('│  ' + level.padEnd(13) + ' ' + bar + ' ' + pct);
+  }
+  console.log('└');
+
+  // 4. Groups
+  const tm = getTaskManager(dir);
+  const milestones = tm.listMilestones();
+  console.log('\n┌─ Groups (' + milestones.length + ')');
+  for (const ms of milestones) {
+    const icon = ms.status === 'completed' ? '✅' : ms.status === 'active' ? '🔵' : '⚪';
+    const bar = ms.taskCount > 0
+      ? ('█'.repeat(Math.round(ms.progress / 5)) + '░'.repeat(20 - Math.round(ms.progress / 5)))
+      : '░'.repeat(20);
+    console.log('│  ' + icon + ' ' + ms.id + ' ' + ms.name);
+    console.log('│    ' + bar + ' ' + ms.progress + '% (' + ms.doneCount + '/' + ms.taskCount + ')');
+  }
+  console.log('└');
+
+  // 5. Tasks breakdown
+  const TaskManager = require(path.join(DEVTEAM_ROOT, 'lib/task-manager.js'));
+  const kanban = new TaskManager(dir).getKanban();
+  const total = (kanban.todo || []).length + (kanban.inProgress || []).length +
+    (kanban.review || []).length + (kanban.testing || []).length +
+    (kanban.done || []).length + (kanban.blocked || []).length;
+
+  console.log('\n┌─ Tasks (' + total + ')');
+  const statuses = [
+    ['📋 Todo', kanban.todo],
+    ['🔧 In Progress', kanban.inProgress],
+    ['👀 Review', kanban.review],
+    ['🧪 Testing', kanban.testing],
+    ['✅ Done', kanban.done],
+    ['🚫 Blocked', kanban.blocked]
+  ];
+  for (const [label, tasks] of statuses) {
+    if ((tasks || []).length > 0) {
+      console.log('│  ' + label + ' (' + tasks.length + '):');
+      for (const id of (tasks || []).slice(0, 5)) {
+        const t = tm.getTask(id);
+        if (t) console.log('│    ' + id + ': ' + (t.title || '').slice(0, 50));
+      }
+      if (tasks.length > 5) console.log('│    ... +' + (tasks.length - 5) + ' more');
+    }
+  }
+  console.log('└');
+
+  // 6. Recent activity (last 10 events)
+  console.log('\n┌─ Recent Activity');
+  const recent = recentEvents.slice(-15);
+  for (const ev of recent) {
+    const time = (ev.time || '').slice(11, 19);
+    const event = (ev.event || '').padEnd(15);
+    const agent = (ev.agent || '').padEnd(12);
+    const detail = ((ev.data && ev.data.details) || '').slice(0, 60);
+    console.log('│  ' + time + ' ' + event + ' ' + agent + ' ' + detail);
+  }
+  if (recent.length === 0) console.log('│  (no events)');
+  console.log('└');
+
+  // 7. Pending CRs
+  const crDir = path.join(dir, '.team/change-requests');
+  if (fs.existsSync(crDir)) {
+    const crFiles = fs.readdirSync(crDir).filter(f => f.endsWith('.json'));
+    const pending = crFiles.filter(f => {
+      const cr = readJSON(path.join(crDir, f));
+      return cr && cr.status === 'pending';
+    });
+    if (pending.length > 0) {
+      console.log('\n┌─ Pending CRs (' + pending.length + ')');
+      for (const f of pending.slice(0, 5)) {
+        const cr = readJSON(path.join(crDir, f));
+        console.log('│  ' + cr.id + ': ' + cr.from + ' → ' + cr.to + ' | ' + (cr.impact || '').slice(0, 40));
+      }
+      console.log('└');
+    }
+  }
+
+  console.log('\n══════════════════════════════════════════\n');
+}
+
 function showDoc(docName) {
   const dir = requireProject();
   const fileMap = { vision: 'VISION.md', prd: 'PRD.md', arch: 'ARCHITECTURE.md' };
@@ -913,6 +1075,10 @@ switch (command) {
     status();
     break;
 
+  case 'report':
+    report();
+    break;
+
   case 'vision':
     if (subcommand === 'show') showDoc('vision');
     else console.log('Usage: team vision show');
@@ -1006,6 +1172,7 @@ switch (command) {
     console.log('  team init <dir> --config <name>   Initialize with specific workflow');
     console.log('  team auto "<goal>"                Generate workflow from goal (Phase 3)');
     console.log('  team status                       Project overview');
+    console.log('  team report                       Full situation report');
     console.log('');
     console.log('Documents:');
     console.log('  team vision show                  Show vision');
