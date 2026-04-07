@@ -86,7 +86,7 @@ function findArg(flag) {
 
 function init(dirName) {
   if (!dirName) {
-    console.error('Usage: team init <dir>');
+    console.error('Usage: team init <dir> ["goal description"]');
     process.exit(1);
   }
 
@@ -111,24 +111,50 @@ function init(dirName) {
     fs.mkdirSync(path.join(projectDir, dir), { recursive: true });
   }
 
-  // Load workflow config (--config <name> or default: dev-team)
-  const workflowArg = process.argv.indexOf('--config');
-  const workflowName = workflowArg !== -1 && process.argv[workflowArg + 1]
-    ? process.argv[workflowArg + 1]
-    : 'dev-team';
-  const defaultConfigPath = path.join(DEVTEAM_ROOT, 'configs', workflowName, 'config.json');
-  if (!fs.existsSync(defaultConfigPath)) {
-    console.error(`Error: workflow config not found: configs/${workflowName}/config.json`);
-    const available = fs.readdirSync(path.join(DEVTEAM_ROOT, 'configs')).filter(d =>
-      fs.existsSync(path.join(DEVTEAM_ROOT, 'configs', d, 'config.json'))
-    );
-    if (available.length) console.error(`Available: ${available.join(', ')}`);
-    process.exit(1);
-  }
-  let defaultConfig = {};
-  try { defaultConfig = JSON.parse(fs.readFileSync(defaultConfigPath, 'utf8')); } catch {}
+  // Determine workflow: --config explicit > LLM auto-select > dev-team fallback
+  const configArg = process.argv.indexOf('--config');
+  const explicitConfig = configArg !== -1 && process.argv[configArg + 1];
 
-  const config = Object.assign({}, defaultConfig, {
+  // Collect goal from remaining args (everything after dirName that's not a flag)
+  const goalParts = args.slice(1).filter(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--config');
+  const goal = goalParts.join(' ').trim();
+
+  let workflowName;
+  let config;
+
+  if (explicitConfig) {
+    // Explicit --config: use directly
+    workflowName = explicitConfig;
+  } else if (goal) {
+    // Have a goal: let LLM decide
+    workflowName = _autoSelectWorkflow(goal, projectDir);
+  } else {
+    // No goal, no --config: default
+    workflowName = 'dev-team';
+  }
+
+  if (workflowName === '_auto') {
+    // LLM generated a custom workflow — config already in _auto/
+    const autoConfigPath = path.join(DEVTEAM_ROOT, 'configs/_auto/config.json');
+    if (!fs.existsSync(autoConfigPath)) {
+      console.error('Error: auto-generated config not found');
+      process.exit(1);
+    }
+    config = JSON.parse(fs.readFileSync(autoConfigPath, 'utf8'));
+  } else {
+    const configPath = path.join(DEVTEAM_ROOT, 'configs', workflowName, 'config.json');
+    if (!fs.existsSync(configPath)) {
+      console.error(`Error: workflow config not found: configs/${workflowName}/config.json`);
+      const available = fs.readdirSync(path.join(DEVTEAM_ROOT, 'configs')).filter(d =>
+        fs.existsSync(path.join(DEVTEAM_ROOT, 'configs', d, 'config.json'))
+      );
+      if (available.length) console.error(`Available: ${available.join(', ')}`);
+      process.exit(1);
+    }
+    config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  }
+
+  config = Object.assign({}, config, {
     _workflow: workflowName,
     name: path.basename(projectDir),
     created: new Date().toISOString(),
@@ -161,9 +187,80 @@ function init(dirName) {
   }
 
   console.log(`Project initialized: ${projectDir}`);
+  console.log(`  Workflow: ${workflowName}`);
+  if (goal) console.log(`  Goal: ${goal}`);
   console.log(`  cd ${dirName}`);
-  console.log(`  # Edit docs in ${docsRoot}/`);
   console.log(`  team start`);
+}
+
+/**
+ * Let LLM decide: use existing workflow template or generate custom.
+ * Returns workflow name (e.g. 'dev-team') or '_auto' if custom generated.
+ */
+function _autoSelectWorkflow(goal, projectDir) {
+  // List available workflows with descriptions
+  const configsDir = path.join(DEVTEAM_ROOT, 'configs');
+  const available = fs.readdirSync(configsDir)
+    .filter(d => d !== '_auto' && d !== 'default.json' &&
+      fs.existsSync(path.join(configsDir, d, 'config.json')));
+
+  const summaries = available.map(name => {
+    try {
+      const c = JSON.parse(fs.readFileSync(path.join(configsDir, name, 'config.json'), 'utf8'));
+      return `- ${name}: ${c.description || c.name || '(no description)'}`;
+    } catch { return `- ${name}: (unreadable)`; }
+  }).join('\n');
+
+  // Collect project context
+  let context = '';
+  if (fs.existsSync(projectDir)) {
+    for (const f of ['README.md', 'package.json', 'VISION.md', 'PRD.md']) {
+      const fp = path.join(projectDir, f);
+      if (fs.existsSync(fp)) {
+        context += `\n--- ${f} ---\n${fs.readFileSync(fp, 'utf8').slice(0, 1500)}\n`;
+      }
+    }
+  }
+
+  const selectPrompt = `You are choosing a workflow for a dev team project.
+
+Goal: ${goal}
+
+Available workflows:
+${summaries}
+
+Project context:
+${context || '(empty project)'}
+
+If one of the available workflows fits the goal well, respond with ONLY its name (e.g. "dev-team").
+If none fit, respond with ONLY "generate".
+No explanation, just the single word.`;
+
+  const tmpFile = '/tmp/team-select-input.txt';
+  fs.writeFileSync(tmpFile, selectPrompt);
+
+  try {
+    const result = execSync(
+      `llm --max-tokens 20 < ${tmpFile}`,
+      { encoding: 'utf8', timeout: 30000 }
+    ).trim().toLowerCase();
+
+    if (available.includes(result)) {
+      console.log(`🔍 LLM selected existing workflow: ${result}`);
+      return result;
+    }
+
+    // Need custom generation
+    console.log(`🔧 No existing workflow fits — generating custom...`);
+    // Set env for workflow-gen to pick up
+    process.env.TEAM_AUTO_GOAL = goal;
+    process.env.TEAM_AUTO_PROJECT = projectDir;
+    require('./workflow-gen.js');
+    return '_auto';
+  } catch (err) {
+    console.log(`⚠️  LLM selection failed, falling back to dev-team`);
+    return 'dev-team';
+  }
 }
 
 function status() {
