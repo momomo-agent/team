@@ -38,7 +38,7 @@ class WorkflowEngine {
     this.visitedNodes = [];
     this.loopIterations = new Map();
     this.transitionDepth = 0;
-    this.maxTransitions = (config.workflow && config.workflow.maxTransitions) || 10000;
+    this.maxTransitions = (config.workflow && config.workflow.maxTransitions) || 200;
 
     // Checkpoint support
     this._checkpointDir = runtime.projectDir
@@ -66,6 +66,7 @@ class WorkflowEngine {
       visitedNodes: [...this.visitedNodes],
       loopIterations: Object.fromEntries(this.loopIterations),
       transitionDepth: this.transitionDepth,
+      nodeVisitCounts: this._nodeVisitCounts || {},
       contextOverrides: this.runtime._contextOverrides || {},
       timestamp: new Date().toISOString(),
       ...extra
@@ -100,6 +101,7 @@ class WorkflowEngine {
       this.visitedNodes = cp.visitedNodes || [];
       this.loopIterations = new Map(Object.entries(cp.loopIterations || {}));
       this.transitionDepth = cp.transitionDepth || 0;
+      this._nodeVisitCounts = cp.nodeVisitCounts || {};
       if (cp.contextOverrides && this.runtime._contextOverrides) {
         Object.assign(this.runtime._contextOverrides, cp.contextOverrides);
       }
@@ -129,9 +131,22 @@ class WorkflowEngine {
       return;
     }
 
+    // ─── Ping-pong / spin detection ───
+    // Count how many times each node has been visited.
+    // If a non-loop node is visited > maxNodeRevisits times, force stop.
+    if (!this._nodeVisitCounts) this._nodeVisitCounts = {};
+    this._nodeVisitCounts[nodeId] = (this._nodeVisitCounts[nodeId] || 0) + 1;
+
     const node = this.loadNode(nodeId);
     if (!node) {
       this.runtime.log('error', 'workflow', `Node not found: ${nodeId}`);
+      return;
+    }
+
+    const maxRevisits = node.maxRevisits || (this.config.workflow && this.config.workflow.maxNodeRevisits) || 5;
+    if (node.type !== 'loop' && this._nodeVisitCounts[nodeId] > maxRevisits) {
+      this.runtime.log('error', 'workflow',
+        `[SPIN-EXIT] Node "${nodeId}" visited ${this._nodeVisitCounts[nodeId]} times (max ${maxRevisits}) — breaking cycle`);
       return;
     }
 
@@ -615,12 +630,22 @@ class WorkflowEngine {
     const max = node.maxIterations || 100;
     let iteration = 0;
 
+    // ─── Stall Detection ───
+    // Track state snapshots to detect loops making no progress.
+    // If the state fingerprint is unchanged for N consecutive iterations, exit.
+    const stallThreshold = node.stallThreshold || 3;
+    let stallCount = 0;
+    let lastFingerprint = null;
+
     while (iteration < max) {
       iteration++;
       this.loopIterations.set(this.currentNode, iteration);
       ctx = this.buildContext();
       ctx.iteration = iteration;
       this.runtime.log('workflow', this.currentNode, `[LOOP] Iteration ${iteration}`);
+
+      // Snapshot state before step execution
+      const fingerprint = this._stateFingerprint(ctx);
 
       // 执行 steps
       if (node.steps) {
@@ -632,6 +657,44 @@ class WorkflowEngine {
           await this.runSteps(node.do.steps, ctx);
         }
       }
+
+      // Refresh context after execution
+      ctx = this.buildContext();
+      ctx.iteration = iteration;
+      const postFingerprint = this._stateFingerprint(ctx);
+
+      // ─── Stall check ───
+      if (postFingerprint === lastFingerprint) {
+        stallCount++;
+        this.runtime.log('workflow', this.currentNode,
+          `[STALL] No state change (${stallCount}/${stallThreshold})`);
+        if (stallCount >= stallThreshold) {
+          this.runtime.log('workflow', this.currentNode,
+            `[STALL-EXIT] ${stallCount} iterations with no progress — forcing exit`);
+          // Follow exit path if defined, otherwise just break
+          if (node.stallExit) {
+            const target = typeof node.stallExit === 'string' ? node.stallExit : node.stallExit.next;
+            if (target) {
+              await this.executeNode(target);
+              return;
+            }
+          }
+          // Default: follow normal exit.next if available
+          if (node.exit) {
+            const exitNext = node.exit.next || node.exit.then;
+            const target = typeof exitNext === 'string' ? exitNext :
+              (exitNext && exitNext.then ? exitNext.then : null);
+            if (target) {
+              await this.executeNode(target);
+              return;
+            }
+          }
+          break;
+        }
+      } else {
+        stallCount = 0;
+      }
+      lastFingerprint = postFingerprint;
 
       // 退出条件
       if (node.exit) {
@@ -650,6 +713,42 @@ class WorkflowEngine {
     }
 
     this.runtime.log('workflow', this.currentNode, `[LOOP] Max iterations (${max})`);
+  }
+
+  // ─── State Fingerprint for Stall Detection ───
+  //
+  // Captures: task counts by status, git HEAD, total task count, milestone status.
+  // If this string is identical across iterations, nothing meaningful happened.
+
+  _stateFingerprint(ctx) {
+    const parts = [];
+    // Task counts
+    for (const s of ['todo', 'inProgress', 'review', 'testing', 'blocked', 'done']) {
+      const key = s + 'Count';
+      parts.push(key + ':' + (ctx[key] || 0));
+    }
+    // Git HEAD
+    try {
+      const { execSync } = require('child_process');
+      const head = execSync('git rev-parse HEAD', {
+        cwd: this.runtime.projectDir, timeout: 5000
+      }).toString().trim().slice(0, 8);
+      parts.push('git:' + head);
+    } catch { parts.push('git:?'); }
+    // Total tasks and milestone state
+    try {
+      const totalTasks = this.runtime.listTaskDirs().length;
+      parts.push('total:' + totalTasks);
+    } catch { parts.push('total:?'); }
+    // Experiments.log line count (for autoresearch)
+    try {
+      const logPath = path.join(this.runtime.projectDir, 'experiments.log');
+      if (fs.existsSync(logPath)) {
+        const lineCount = fs.readFileSync(logPath, 'utf8').trim().split('\n').length;
+        parts.push('exp:' + lineCount);
+      }
+    } catch {}
+    return parts.join('|');
   }
 
   resolveExit(exit, ctx) {
