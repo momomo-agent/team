@@ -635,8 +635,10 @@ async function refresh() {
 
 // 渲染单个组件到指定 pane
 async function renderComponent(pane, comp, gaps) {
+  var src = comp.source || comp.path || '';
+
   if (comp.component === 'MarkdownView') {
-    var docData = await fetch('/file/' + comp.path).then(function(r) { return r.json(); }).catch(function() { 
+    var docData = await fetch('/file/' + src).then(function(r) { return r.json(); }).catch(function() { 
       return { content: '', match: 0 };
     });
     
@@ -656,8 +658,98 @@ async function renderComponent(pane, comp, gaps) {
     }
     
     // 添加原文内容
-    html += AgenticRender.render(docData.content || '');
+    if (typeof AgenticRender !== 'undefined') {
+      html += AgenticRender.render(docData.content || '');
+    } else {
+      html += '<pre>' + escapeHtml(docData.content || '(empty)') + '</pre>';
+    }
     container.innerHTML = html;
+    pane.appendChild(container);
+  }
+  else if (comp.component === 'JsonlChart') {
+    var data = await fetch('/file/' + src).then(function(r) { return r.json(); }).catch(function() { return { content: '' }; });
+    var container = document.createElement('div');
+    container.className = 'jsonl-chart-view';
+    var raw = data.content || '';
+    var entries = raw.split('\n').filter(Boolean).map(function(line) {
+      try { return JSON.parse(line); } catch { return null; }
+    }).filter(Boolean);
+
+    if (entries.length === 0) {
+      container.innerHTML = '<div class="stage-empty">No experiment data yet</div>';
+    } else {
+      // Collect numeric keys
+      var keys = {};
+      entries.forEach(function(e) {
+        Object.keys(e).forEach(function(k) { if (typeof e[k] === 'number') keys[k] = true; });
+      });
+      delete keys.timestamp;
+      var numericKeys = Object.keys(keys);
+
+      var html = '<div class="section-label">Experiment Metrics (' + entries.length + ' runs)</div>';
+
+      // Latest metrics cards
+      var latest = entries[entries.length - 1];
+      html += '<div style="display:flex;gap:16px;margin:12px 0;flex-wrap:wrap">';
+      numericKeys.forEach(function(k) {
+        if (latest[k] != null) {
+          html += '<div style="text-align:center"><div style="font-size:10px;color:#888;text-transform:uppercase">' + k + '</div>';
+          html += '<div style="font-size:20px;font-weight:700">' + (typeof latest[k] === 'number' ? latest[k].toFixed(1) : latest[k]) + '</div></div>';
+        }
+      });
+      html += '</div>';
+
+      // SVG charts
+      numericKeys.slice(0, 4).forEach(function(key) {
+        var values = entries.map(function(e) { return e[key]; }).filter(function(v) { return v != null; });
+        if (values.length < 2) return;
+        var min = Math.min.apply(null, values), max = Math.max.apply(null, values), range = max - min || 1;
+        var w = 400, h = 80, pad = 4;
+        var points = values.map(function(v, i) {
+          return (pad + (i / (values.length - 1)) * (w - pad * 2)) + ',' + (h - pad - ((v - min) / range) * (h - pad * 2));
+        }).join(' ');
+        var markers = '';
+        entries.forEach(function(e, i) {
+          if (e.decision && e[key] != null) {
+            var x = pad + (i / (values.length - 1)) * (w - pad * 2);
+            var y = h - pad - ((e[key] - min) / range) * (h - pad * 2);
+            markers += '<circle cx="' + x + '" cy="' + y + '" r="4" fill="' + (e.decision === 'keep' ? '#2d8a4e' : '#dc2626') + '" opacity="0.8"/>';
+          }
+        });
+        html += '<div style="margin:8px 0"><div style="font-size:10px;color:#888;margin-bottom:2px">' + key + ' (' + min.toFixed(1) + ' — ' + max.toFixed(1) + ')</div>';
+        html += '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:' + h + 'px;background:#fafaf8;border-radius:6px;border:1px solid #eee">';
+        html += '<polyline points="' + points + '" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linejoin="round"/>' + markers + '</svg></div>';
+      });
+
+      // Decision log
+      var decisions = entries.filter(function(e) { return e.decision; });
+      if (decisions.length > 0) {
+        html += '<div style="margin-top:12px"><div class="section-label">Decisions</div>';
+        decisions.slice(-10).forEach(function(d) {
+          var icon = d.decision === 'keep' ? '✅' : d.decision === 'revert' ? '🔄' : '⚫';
+          html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #f0f0ee">';
+          html += icon + ' <strong>' + escapeHtml((d.hypothesis || '').slice(0, 60)) + '</strong>';
+          if (d.reason) html += '<br><span style="color:#888;font-size:10px">' + escapeHtml(d.reason.slice(0, 80)) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      container.innerHTML = html;
+    }
+    pane.appendChild(container);
+  }
+  else if (comp.component === 'JsonView') {
+    var data = await fetch('/file/' + src).then(function(r) { return r.json(); }).catch(function() { return { content: '' }; });
+    var container = document.createElement('div');
+    container.className = 'json-view';
+    var content = data.content || '';
+    var label = comp.label ? '<div class="section-label" style="margin-bottom:8px">' + escapeHtml(comp.label) + '</div>' : '';
+    try {
+      var parsed = JSON.parse(content);
+      container.innerHTML = label + '<pre style="font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;background:#fafaf8;padding:12px;border-radius:6px;border:1px solid #eee">' + escapeHtml(JSON.stringify(parsed, null, 2)) + '</pre>';
+    } catch {
+      container.innerHTML = label + '<pre style="font-size:12px;">' + escapeHtml(content || '(empty)') + '</pre>';
+    }
     pane.appendChild(container);
   }
 }

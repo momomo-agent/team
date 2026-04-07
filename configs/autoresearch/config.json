@@ -4,16 +4,54 @@
   "groups": { "label": "experiments" },
   "dashboard": {
     "left": [
-      { "id": "vision", "title": "Vision", "source": ".team/docs/VISION.md", "type": "markdown" },
-      { "id": "review", "title": "Review", "source": ".team/review.md", "type": "markdown" },
-      { "id": "metrics", "title": "Metrics", "source": "experiments.log", "type": "jsonl-chart" },
-      { "id": "conclusion", "title": "Conclusion", "source": ".team/conclusion.md", "type": "markdown" }
+      {
+        "id": "vision",
+        "title": "Vision",
+        "components": [
+          { "component": "MarkdownView", "source": ".team/docs/VISION.md" }
+        ]
+      },
+      {
+        "id": "review",
+        "title": "Review",
+        "components": [
+          { "component": "MarkdownView", "source": ".team/review.md" }
+        ]
+      },
+      {
+        "id": "metrics",
+        "title": "Metrics",
+        "badge": { "source": ".team/baseline.json", "field": "seedRecall", "suffix": "%" },
+        "components": [
+          { "component": "JsonlChart", "source": "experiments.log" },
+          { "component": "JsonView", "source": ".team/stuck-signal.json", "label": "Stuck Signal" }
+        ]
+      },
+      {
+        "id": "conclusion",
+        "title": "Conclusion",
+        "components": [
+          { "component": "MarkdownView", "source": ".team/conclusion.md" }
+        ]
+      }
     ],
     "right": [
-      { "id": "pipeline", "title": "Pipeline", "type": "pipeline" },
-      { "id": "kanban", "title": "Kanban", "type": "kanban" },
-      { "id": "groups", "title": "Experiments", "type": "groups" },
-      { "id": "logs", "title": "Logs", "type": "logs" }
+      {
+        "title": "Pipeline",
+        "components": [{ "component": "PipelineView" }]
+      },
+      {
+        "title": "Kanban",
+        "components": [{ "component": "KanbanView" }]
+      },
+      {
+        "title": "Experiments",
+        "components": [{ "component": "MilestonesView" }]
+      },
+      {
+        "title": "Logs",
+        "components": [{ "component": "LogsView" }]
+      }
     ]
   },
   "workflow": {

@@ -319,9 +319,21 @@ const server = http.createServer((req, res) => {
     // 支持新配置：dashboard.left (unified type)
     let doc = null;
     if (config.dashboard && config.dashboard.left) {
-      doc = config.dashboard.left.find(function(d) { return d.id === docId; });
+      // First try direct match with source/path/file
+      doc = config.dashboard.left.find(function(d) { return d.id === docId && (d.source || d.path || d.file); });
+      // Also check right tabs
       if (!doc && config.dashboard.right) {
-        doc = config.dashboard.right.find(function(d) { return d.id === docId; });
+        doc = config.dashboard.right.find(function(d) { return d.id === docId && (d.source || d.path || d.file); });
+      }
+      // Search inside components
+      if (!doc) {
+        var allTabs = (config.dashboard.left || []).concat(config.dashboard.right || []);
+        for (var t of allTabs) {
+          if (t.components) {
+            var found = t.components.find(function(c) { return (c.source || c.path) && (c.source === docId || c.path === docId); });
+            if (found) { doc = { id: docId, source: found.source || found.path }; break; }
+          }
+        }
       }
     }
     // 兼容旧配置：docs.items
