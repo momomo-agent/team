@@ -173,6 +173,14 @@ function buildPrompt(agentType, projectDir, agentId) {
     '- `escalate` — tried but no progress possible, need human or different approach\n\n' +
     'The signal block is **required**. Place it at the end of your output.\n';
 
+  // Inject retry context if previous run failed validation
+  var retryPath = path.join(projectDir, '.team/retry-context.md');
+  if (fs.existsSync(retryPath)) {
+    prompt += '\n' + fs.readFileSync(retryPath, 'utf8');
+    // Clean up so next normal run doesn't see it
+    try { fs.unlinkSync(retryPath); } catch {}
+  }
+
   return prompt;
 }
 

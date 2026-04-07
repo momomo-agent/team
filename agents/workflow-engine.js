@@ -261,6 +261,9 @@ class WorkflowEngine {
           if (this._validateRetries[retryKey] <= maxRetries) {
             this.runtime.log('workflow', this.currentNode,
               `[VALIDATE-RETRY] ${step.id || '?'} (${this._validateRetries[retryKey]}/${maxRetries})`);
+            // Inject failure reason so agent knows why it's being re-run
+            const failureMsg = failures.join('; ');
+            this._writeRetryContext(step, failureMsg, this._validateRetries[retryKey]);
             i--; // Re-run this step
             continue;
           }
@@ -575,6 +578,21 @@ class WorkflowEngine {
    *     maxRetries: 1                         // how many times to retry on failure
    *   }
    */
+  /**
+   * Write retry context so the re-run agent knows what went wrong.
+   * runner.js reads .team/retry-context.md and appends to prompt.
+   */
+  _writeRetryContext(step, failureMsg, attempt) {
+    const agent = step.execute && step.execute.agent;
+    if (!agent) return;
+    const retryPath = path.join(this.runtime.projectDir, '.team', 'retry-context.md');
+    const content = `## Retry (attempt ${attempt})\n\n` +
+      `Your previous run failed output validation:\n` +
+      `- ${failureMsg}\n\n` +
+      `Please fix these issues this time. The system will verify again after you finish.\n`;
+    fs.writeFileSync(retryPath, content);
+  }
+
   _validateStepOutput(validate, step) {
     const failures = [];
 
