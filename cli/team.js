@@ -8,18 +8,18 @@
  *   team vision show                   Show vision
  *   team prd show                      Show PRD
  *   team arch show                     Show architecture
- *   team milestone list                All milestones + status
- *   team milestone show <id>           Details (DBB + design + tasks + review)
- *   team milestone create <name>       Create milestone
- *   team task list [--milestone <id>] [--status <s>]
- *   team task create <title> <desc> [--milestone <id>]
+ *   team group list                All groups + status
+ *   team group show <id>           Details (DBB + design + tasks + review)
+ *   team group create <name>       Create group
+ *   team task list [--group <id>] [--milestone <id>] [--status <s>]
+ *   team task create <title> <desc> [--group <id>] [--milestone <id>]
  *   team task update <id> <json>
  *   team task show <id>
  *   team start [--devs N]             Start daemon
  *   team stop                         Stop daemon
  *   team agents                       Agent status
  *   team gaps [--level L0|L1|L2|L3]   View gaps
- *   team check <milestone-id>         Manual triple check
+ *   team check <group-id>         Manual triple check
  *   team cr list                      CR list
  *   team cr show <id>                 CR details
  *   team cr approve <id>              Approve CR
@@ -189,7 +189,7 @@ function status() {
   // Milestones
   const tm = getTaskManager(dir);
   const milestones = tm.listMilestones();
-  console.log(`\n  Milestones: ${milestones.length}`);
+  console.log(`\n  Groups: ${milestones.length}`);
   for (const ms of milestones) {
     const icon = ms.status === 'completed' ? '●' : ms.status === 'active' ? '◉' : '○';
     console.log(`    ${icon} ${ms.id} ${ms.name} [${ms.status}] ${ms.progress}% (${ms.doneCount}/${ms.taskCount})`);
@@ -241,17 +241,17 @@ function showDoc(docName) {
   }
 }
 
-function milestoneList() {
+function groupList() {
   const dir = requireProject();
   const tm = getTaskManager(dir);
   const milestones = tm.listMilestones();
 
   if (milestones.length === 0) {
-    console.log('No milestones yet.');
+    console.log('No groups yet.');
     return;
   }
 
-  console.log('\n  Milestones:\n');
+  console.log('\n  Groups:\n');
   for (const ms of milestones) {
     const icon = ms.status === 'completed' ? '●' : ms.status === 'active' ? '◉' : '○';
     const bar = '█'.repeat(Math.floor(ms.progress / 10)) + '░'.repeat(10 - Math.floor(ms.progress / 10));
@@ -261,14 +261,14 @@ function milestoneList() {
   console.log('');
 }
 
-function milestoneShow(id) {
-  if (!id) { console.error('Usage: team milestone show <id>'); return; }
+function groupShow(id) {
+  if (!id) { console.error('Usage: team group show <id>'); return; }
   const dir = requireProject();
   const tm = getTaskManager(dir);
   const detail = tm.showMilestone(id);
   if (!detail) return;
 
-  console.log(`\n  Milestone: ${detail.id} — ${detail.name} [${detail.status}]\n`);
+  console.log(`\n  Group: ${detail.id} — ${detail.name} [${detail.status}]\n`);
 
   if (detail.overview) {
     console.log('  --- Overview ---');
@@ -300,8 +300,8 @@ function milestoneShow(id) {
   console.log('');
 }
 
-function milestoneCreate(name) {
-  if (!name) { console.error('Usage: team milestone create <name>'); return; }
+function groupCreate(name) {
+  if (!name) { console.error('Usage: team group create <name>'); return; }
   const dir = requireProject();
   const tm = getTaskManager(dir);
   tm.createMilestone(name);
@@ -310,7 +310,7 @@ function milestoneCreate(name) {
 function taskList() {
   const dir = requireProject();
   const tm = getTaskManager(dir);
-  const milestone = findArg('--milestone');
+  const milestone = findArg('--group') || findArg('--milestone');
   const status = findArg('--status');
   const tasks = tm.listTasks({ milestone, status });
 
@@ -332,10 +332,10 @@ function taskList() {
 function taskCreate() {
   const title = process.argv[4];
   const desc = process.argv[5] || '';
-  if (!title) { console.error('Usage: team task create <title> <desc> [--milestone <id>]'); return; }
+  if (!title) { console.error('Usage: team task create <title> <desc> [--group <id>] [--milestone <id>]'); return; }
   const dir = requireProject();
   const tm = getTaskManager(dir);
-  const milestone = findArg('--milestone');
+  const milestone = findArg('--group') || findArg('--milestone');
   tm.createTask(title, desc, { milestone });
 }
 
@@ -521,7 +521,7 @@ function showGaps() {
 }
 
 function check(milestoneId) {
-  if (!milestoneId) { console.error('Usage: team check <milestone-id>'); return; }
+  if (!milestoneId) { console.error('Usage: team check <group-id>'); return; }
   const dir = requireProject();
 
   console.log(`Running triple check for milestone ${milestoneId}...`);
@@ -540,7 +540,7 @@ function check(milestoneId) {
     }
   }
 
-  console.log('\nCheck complete. View results: team milestone show ' + milestoneId);
+  console.log('\nCheck complete. View results: team group show ' + milestoneId);
 }
 
 function crList() {
@@ -928,12 +928,12 @@ switch (command) {
     else console.log('Usage: team arch show');
     break;
 
-  case 'milestone':
+  case 'milestone': case 'group':
     switch (subcommand) {
-      case 'list': milestoneList(); break;
-      case 'show': milestoneShow(process.argv[4]); break;
-      case 'create': milestoneCreate(process.argv[4]); break;
-      default: console.log('Usage: team milestone <list|show|create>');
+      case 'list': groupList(); break;
+      case 'show': groupShow(process.argv[4]); break;
+      case 'create': groupCreate(process.argv[4]); break;
+      default: console.log('Usage: team group <list|show|create>');
     }
     break;
 
@@ -1012,14 +1012,14 @@ switch (command) {
     console.log('  team prd show                     Show PRD');
     console.log('  team arch show                    Show architecture');
     console.log('');
-    console.log('Milestones:');
-    console.log('  team milestone list               List milestones');
-    console.log('  team milestone show <id>          Milestone details');
-    console.log('  team milestone create <name>      Create milestone');
+    console.log('Groups:');
+    console.log('  team group list               List groups');
+    console.log('  team group show <id>          Group details');
+    console.log('  team group create <name>      Create group');
     console.log('');
     console.log('Tasks:');
-    console.log('  team task list [--milestone <id>] [--status <s>]');
-    console.log('  team task create <title> <desc> [--milestone <id>]');
+    console.log('  team task list [--group <id>] [--milestone <id>] [--status <s>]');
+    console.log('  team task create <title> <desc> [--group <id>] [--milestone <id>]');
     console.log('  team task update <id> <json>');
     console.log('  team task show <id>');
     console.log('');
@@ -1035,7 +1035,7 @@ switch (command) {
     console.log('');
     console.log('Monitoring:');
     console.log('  team gaps [--level L0|L1|L2|L3]   View gaps');
-    console.log('  team check <milestone-id>         Manual triple check');
+    console.log('  team check <group-id>         Manual triple check');
     console.log('');
     console.log('Change Requests:');
     console.log('  team cr list                      List CRs');
