@@ -166,18 +166,70 @@ async function generate(goal, projectDir) {
 
   // ─── Validate generated workflow ───
   const { validate } = require('../lib/workflow-validator');
-  const result = validate(workflow.config, { configDir: AUTO_DIR });
+  let valResult = validate(workflow.config, { configDir: AUTO_DIR });
 
-  if (result.errors.length > 0) {
-    console.log('\n❌ Validation errors:');
-    result.errors.forEach(e => console.log('  ' + e.toString()));
-    console.log('\nWorkflow written but has errors. Fix before running.');
+  // ─── Auto-fix loop: feed errors back to LLM ───
+  const MAX_FIX_ATTEMPTS = 3;
+  let fixAttempt = 0;
+
+  while (!valResult.valid && fixAttempt < MAX_FIX_ATTEMPTS) {
+    fixAttempt++;
+    console.log(`\n🔧 Auto-fix attempt ${fixAttempt}/${MAX_FIX_ATTEMPTS}...`);
+
+    const errorList = valResult.errors.map(e => e.toString()).join('\n');
+    const fixPrompt = `你之前生成的 workflow 有以下验证错误:\n\n${errorList}\n\n` +
+      `当前 workflow JSON:\n${JSON.stringify(workflow, null, 2)}\n\n` +
+      `请修复这些错误，输出完整的修正后 JSON。只输出 JSON，不要解释。`;
+
+    fs.writeFileSync(tmpInput, fixPrompt);
+
+    let fixResult;
+    try {
+      fixResult = execSync(
+        `llm --system ${JSON.stringify(SCHEMA_PROMPT)} --max-tokens 4000 < ${tmpInput}`,
+        { encoding: 'utf8', timeout: 120000 }
+      );
+    } catch (e) {
+      console.error('  ❌ LLM fix call failed:', e.message);
+      break;
+    }
+
+    try {
+      const jsonMatch = fixResult.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON');
+      const fixed = JSON.parse(jsonMatch[0]);
+      workflow = fixed;
+
+      // Re-write files
+      fs.writeFileSync(path.join(AUTO_DIR, 'config.json'), JSON.stringify(workflow.config, null, 2));
+      for (const [name, node] of Object.entries(workflow.nodes || {})) {
+        fs.writeFileSync(path.join(AUTO_DIR, 'nodes', name), JSON.stringify(node, null, 2));
+      }
+
+      // Re-validate
+      valResult = validate(workflow.config, { configDir: AUTO_DIR });
+
+      if (valResult.valid) {
+        console.log('  ✅ Fixed!');
+      } else {
+        console.log(`  Still ${valResult.errors.length} errors remaining`);
+      }
+    } catch (e) {
+      console.error('  ❌ Fix parse failed:', e.message);
+      break;
+    }
   }
-  if (result.warnings.length > 0) {
+
+  if (valResult.errors.length > 0) {
+    console.log('\n❌ Validation errors (unfixed):');
+    valResult.errors.forEach(e => console.log('  ' + e.toString()));
+    console.log('\nWorkflow written but has errors. Fix manually before running.');
+  }
+  if (valResult.warnings.length > 0) {
     console.log('\n⚠️  Warnings:');
-    result.warnings.forEach(e => console.log('  ' + e.toString()));
+    valResult.warnings.forEach(e => console.log('  ' + e.toString()));
   }
-  if (result.valid) {
+  if (valResult.valid) {
     console.log('\n✅ Validation passed');
   }
 
