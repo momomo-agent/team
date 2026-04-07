@@ -83,9 +83,10 @@ class TeamDaemon {
       var engine = new WorkflowEngine(config, this.runtime);
       await engine.execute();
 
-      // Auto-stop when all tasks are done
+      // Auto-stop when goal achieved
       if (this._checkAllDone()) {
-        this.runtime.log('workflow', 'daemon', '🎉 All tasks complete — shutting down');
+        var goalDesc = (config.goal && config.goal.description) || 'all tasks done + monitors ≥90%';
+        this.runtime.log('workflow', 'daemon', '🎉 Goal achieved: ' + goalDesc + ' — shutting down');
         this.stop();
         return;
       }

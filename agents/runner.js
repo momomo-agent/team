@@ -27,7 +27,7 @@ function loadConfig(projectDir) {
   const agents = projectConfig.agents || defaultConfig.agents;
   const workflow = projectConfig.workflow || defaultConfig.workflow;
 
-  return { agents, workflow, defaultConfig };
+  return { agents, workflow, defaultConfig, goal: projectConfig.goal };
 }
 
 function getAgentConfig(config, agentType) {
@@ -148,6 +148,11 @@ function buildPrompt(agentType, projectDir, agentId) {
   prompt = prompt.replace(/\{\{TASK_MANAGER\}\}/g, TASK_MANAGER);
   prompt = prompt.replace(/\{\{projectDir\}\}/g, projectDir);
   prompt = prompt.replace(/\{\{AGENT_ID\}\}/g, agentId || agentType);
+
+  // Inject project goal into all agent prompts
+  if (config.goal && config.goal.description) {
+    prompt = `## Project Goal\n\n${config.goal.description}\n\n` + prompt;
+  }
 
   // Replace dynamic context for PM
   if (baseType === 'pm') {

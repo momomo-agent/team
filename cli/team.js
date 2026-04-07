@@ -160,6 +160,14 @@ function init(dirName) {
     created: new Date().toISOString(),
     devteamVersion: '2.0'
   });
+
+  // Set goal from user input
+  if (goal) {
+    config.goal = Object.assign({}, config.goal || {}, {
+      description: goal
+    });
+  }
+
   fs.writeFileSync(path.join(projectDir, '.team/config.json'), JSON.stringify(config, null, 2));
 
   // Create group index (milestones by default, configurable via groups.label)
