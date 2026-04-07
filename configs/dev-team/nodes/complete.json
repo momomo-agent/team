@@ -1,13 +1,28 @@
 {
   "type": "sequence",
-  "description": "目标达成 — workflow 完成",
+  "description": "项目完成 — 最终验证 + 归档",
   "steps": [
     {
-      "id": "final-report",
-      "execute": {
-        "type": "shell",
-        "command": "echo '✅ Goal achieved' >> .team/daemon.log"
-      }
+      "id": "final-monitors",
+      "parallel": true,
+      "branches": [
+        { "id": "final-vision", "execute": { "type": "agent", "agent": "vision_monitor" } },
+        { "id": "final-prd", "execute": { "type": "agent", "agent": "prd_monitor" } },
+        { "id": "final-dbb", "execute": { "type": "agent", "agent": "dbb_monitor" } },
+        { "id": "final-arch", "execute": { "type": "agent", "agent": "arch_monitor" } }
+      ]
+    },
+    {
+      "id": "final-cross-validate",
+      "execute": { "type": "function", "fn": "crossValidateMonitors" }
+    },
+    {
+      "id": "final-tag",
+      "execute": { "type": "function", "fn": "autoGitCommit" }
+    },
+    {
+      "id": "completion-log",
+      "execute": { "type": "noop" }
     }
   ]
 }

@@ -45,6 +45,7 @@ class WorkflowEngine {
       ? path.join(runtime.projectDir, '.team', 'checkpoints')
       : null;
     this._workflowId = config._workflow || 'default';
+    this._maxConcurrency = (config.workflow && config.workflow.maxConcurrency) || 3;
   }
 
   // ─── Checkpoint: Save & Restore ───
@@ -202,7 +203,7 @@ class WorkflowEngine {
         if (eligible.length > 0) {
           this.runtime.log('workflow', this.currentNode,
             `[PARALLEL] ${eligible.map(b => b.id || '?').join(', ')}`);
-          await Promise.all(eligible.map(async branch => {
+          await this._runWithConcurrency(eligible.map(branch => async () => {
             await this.executeStep(branch, ctx);
             if (branch.post) this.enforcePost(branch.post);
           }));
@@ -341,7 +342,7 @@ class WorkflowEngine {
         const instances = [];
         for (let i = 1; i <= count; i++) instances.push(`${agent}-${i}`);
         this.runtime.log('workflow', this.currentNode, `[PARALLEL] ${instances.join(', ')}`);
-        await Promise.all(instances.map(a => this.runtime.runAgent(a)));
+        await this._runWithConcurrency(instances.map(a => () => this.runtime.runAgent(a)));
       }
     }
   }
@@ -753,6 +754,22 @@ class WorkflowEngine {
   }
 
   // ─── Node Loading ───
+
+  // Run async functions with concurrency limit
+  async _runWithConcurrency(fns) {
+    const limit = this._maxConcurrency;
+    if (fns.length <= limit) {
+      return Promise.all(fns.map(fn => fn()));
+    }
+    // Chunk into batches
+    const results = [];
+    for (let i = 0; i < fns.length; i += limit) {
+      const batch = fns.slice(i, i + limit);
+      const batchResults = await Promise.all(batch.map(fn => fn()));
+      results.push(...batchResults);
+    }
+    return results;
+  }
 
   loadNode(nodeId) {
     if (this.config.workflow.nodes && this.config.workflow.nodes[nodeId]) {
