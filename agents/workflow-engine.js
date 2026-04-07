@@ -17,7 +17,7 @@ const path = require('path');
 class WorkflowEngine {
   constructor(config, runtime) {
     this.config = config;
-    this.daemon = runtime;
+    this.runtime = runtime;
     this.currentNode = null;
     this.visitedNodes = [];
     this.loopIterations = new Map();
@@ -25,8 +25,8 @@ class WorkflowEngine {
     this.maxTransitions = (config.workflow && config.workflow.maxTransitions) || 10000;
 
     // Checkpoint support
-    this._checkpointDir = daemon.projectDir
-      ? path.join(daemon.projectDir, '.team', 'checkpoints')
+    this._checkpointDir = runtime.projectDir
+      ? path.join(runtime.projectDir, '.team', 'checkpoints')
       : null;
     this._workflowId = config._workflow || 'default';
   }
@@ -49,7 +49,7 @@ class WorkflowEngine {
       visitedNodes: [...this.visitedNodes],
       loopIterations: Object.fromEntries(this.loopIterations),
       transitionDepth: this.transitionDepth,
-      contextOverrides: this.daemon._contextOverrides || {},
+      contextOverrides: this.runtime._contextOverrides || {},
       timestamp: new Date().toISOString(),
       ...extra
     };
@@ -77,14 +77,14 @@ class WorkflowEngine {
     // Check for checkpoint to resume from
     const cp = this.loadCheckpoint();
     if (cp) {
-      this.daemon.log('workflow', null,
+      this.runtime.log('workflow', null,
         `[RESUME] Resuming from checkpoint: node=${cp.nodeId}, step=${cp.stepIndex}`);
       // Restore state
       this.visitedNodes = cp.visitedNodes || [];
       this.loopIterations = new Map(Object.entries(cp.loopIterations || {}));
       this.transitionDepth = cp.transitionDepth || 0;
-      if (cp.contextOverrides && this.daemon._contextOverrides) {
-        Object.assign(this.daemon._contextOverrides, cp.contextOverrides);
+      if (cp.contextOverrides && this.runtime._contextOverrides) {
+        Object.assign(this.runtime._contextOverrides, cp.contextOverrides);
       }
       // Resume from checkpointed node
       await this.executeNode(cp.nodeId, cp.stepIndex);
@@ -107,20 +107,20 @@ class WorkflowEngine {
 
     this.transitionDepth++;
     if (this.transitionDepth > this.maxTransitions) {
-      this.daemon.log('error', 'workflow',
+      this.runtime.log('error', 'workflow',
         `[ABORT] Max transitions (${this.maxTransitions}). Last: ${nodeId}`);
       return;
     }
 
     const node = this.loadNode(nodeId);
     if (!node) {
-      this.daemon.log('error', 'workflow', `Node not found: ${nodeId}`);
+      this.runtime.log('error', 'workflow', `Node not found: ${nodeId}`);
       return;
     }
 
     this.currentNode = nodeId;
     this.visitedNodes.push(nodeId);
-    this.daemon.log('agent_start', nodeId, `[NODE] ${nodeId} - ${node.description || ''}`);
+    this.runtime.log('agent_start', nodeId, `[NODE] ${nodeId} - ${node.description || ''}`);
 
     const ctx = this.buildContext();
 
@@ -154,7 +154,7 @@ class WorkflowEngine {
 
       // Skip already-executed steps when resuming
       if (resumeFromStep != null && resumeFromStep >= 0 && i < resumeFromStep) {
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[SKIP-RESUME] step ${i} (${step.id || '?'}) already done`);
         continue;
       }
@@ -165,7 +165,7 @@ class WorkflowEngine {
       // 前置条件
       const when = step.when || step.trigger || step.condition;
       if (when && !this.evaluate(when, ctx)) {
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[SKIP] ${step.id || step.execute?.agent || '?'}: ${when}`);
         continue;
       }
@@ -176,7 +176,7 @@ class WorkflowEngine {
         const eligible = step.branches.filter(b => {
           const w = b.when || b.trigger || b.condition;
           if (w && !this.evaluate(w, ctx)) {
-            this.daemon.log('workflow', this.currentNode,
+            this.runtime.log('workflow', this.currentNode,
               `[PARALLEL-SKIP] ${b.id || '?'}: ${w}`);
             return false;
           }
@@ -184,7 +184,7 @@ class WorkflowEngine {
         });
 
         if (eligible.length > 0) {
-          this.daemon.log('workflow', this.currentNode,
+          this.runtime.log('workflow', this.currentNode,
             `[PARALLEL] ${eligible.map(b => b.id || '?').join(', ')}`);
           await Promise.all(eligible.map(async branch => {
             await this.executeStep(branch, ctx);
@@ -200,7 +200,7 @@ class WorkflowEngine {
         const crResult = await this.handleStepCR(step, ctx);
         if (crResult === 'retry') {
           // Upstream accepted CR and fixed — re-run this step
-          this.daemon.log('workflow', this.currentNode,
+          this.runtime.log('workflow', this.currentNode,
             `[CR-RETRY] Re-running step ${step.id || i} after upstream fix`);
           i--; // decrement to re-run same step
           Object.assign(ctx, this.buildContext());
@@ -228,7 +228,7 @@ class WorkflowEngine {
   async handleStepCR(step, ctx) {
     if (!step.cr || !step.cr.enabled) return null;
 
-    const crDir = path.join(this.daemon.projectDir, '.team/change-requests');
+    const crDir = path.join(this.runtime.projectDir, '.team/change-requests');
     if (!fs.existsSync(crDir)) return null;
 
     const agent = step.execute.agent;
@@ -240,7 +240,7 @@ class WorkflowEngine {
     this._crRetries[retryKey] = (this._crRetries[retryKey] || 0);
 
     if (this._crRetries[retryKey] >= maxRetries) {
-      this.daemon.log('workflow', this.currentNode,
+      this.runtime.log('workflow', this.currentNode,
         `[CR] Max retries (${maxRetries}) reached for ${retryKey}, continuing`);
       return null;
     }
@@ -254,13 +254,13 @@ class WorkflowEngine {
         const cr = JSON.parse(fs.readFileSync(path.join(crDir, f), 'utf8'));
         if (cr.status !== 'pending' || cr.from !== agent) continue;
 
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[CR] ${cr.id}: ${cr.from} → ${cr.to} | ${cr.impact}`);
 
         // Run upstream agent to fix the issue
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[CR-FIX] Running ${cr.to} to address: ${cr.proposal}`);
-        await this.daemon.runAgent(cr.to);
+        await this.runtime.runAgent(cr.to);
 
         // Mark CR as handled
         cr.status = 'accepted';
@@ -294,8 +294,8 @@ class WorkflowEngine {
       case 'function':
         if (typeof exec.fn === 'function') {
           await exec.fn(ctx);
-        } else if (typeof exec.fn === 'string' && this.daemon.executeFunction) {
-          await this.daemon.executeFunction(exec.fn, ctx);
+        } else if (typeof exec.fn === 'string' && this.runtime.executeFunction) {
+          await this.runtime.executeFunction(exec.fn, ctx);
         }
         break;
       case 'workflow':
@@ -315,24 +315,24 @@ class WorkflowEngine {
       // 串行：demand 决定跑几次
       const demand = step.demand ? this.evaluateExpr(step.demand, ctx) : 1;
       const count = Math.max(1, Math.min(demand, 1)); // 串行最多 1
-      this.daemon.log('workflow', this.currentNode, `[EXEC] ${agent}`);
-      await this.daemon.runAgent(agent);
+      this.runtime.log('workflow', this.currentNode, `[EXEC] ${agent}`);
+      await this.runtime.runAgent(agent);
     } else {
       // 并行
       const demand = step.demand ? this.evaluateExpr(step.demand, ctx) : 1;
       const count = Math.min(demand, parallel);
       if (count <= 0) {
-        this.daemon.log('workflow', this.currentNode, `[SKIP] ${agent}: demand=0`);
+        this.runtime.log('workflow', this.currentNode, `[SKIP] ${agent}: demand=0`);
         return;
       }
       if (count === 1) {
-        this.daemon.log('workflow', this.currentNode, `[EXEC] ${agent}`);
-        await this.daemon.runAgent(agent);
+        this.runtime.log('workflow', this.currentNode, `[EXEC] ${agent}`);
+        await this.runtime.runAgent(agent);
       } else {
         const instances = [];
         for (let i = 1; i <= count; i++) instances.push(`${agent}-${i}`);
-        this.daemon.log('workflow', this.currentNode, `[PARALLEL] ${instances.join(', ')}`);
-        await Promise.all(instances.map(a => this.daemon.runAgent(a)));
+        this.runtime.log('workflow', this.currentNode, `[PARALLEL] ${instances.join(', ')}`);
+        await Promise.all(instances.map(a => this.runtime.runAgent(a)));
       }
     }
   }
@@ -340,17 +340,17 @@ class WorkflowEngine {
   async executeStepShell(exec, step, ctx) {
     const { execSync } = require('child_process');
     const cwd = exec.cwd
-      ? exec.cwd.replace('{{projectDir}}', this.daemon.projectDir)
-      : this.daemon.projectDir;
+      ? exec.cwd.replace('{{projectDir}}', this.runtime.projectDir)
+      : this.runtime.projectDir;
     const cmd = exec.command;
-    this.daemon.log('workflow', this.currentNode, `[SHELL] ${cmd}`);
+    this.runtime.log('workflow', this.currentNode, `[SHELL] ${cmd}`);
     try {
       const output = execSync(cmd, { cwd, stdio: 'pipe', timeout: exec.timeout || 60000 });
       if (step.post && step.post.on_exit_0) {
         this.applyContextOverrides(step.post.on_exit_0);
       }
     } catch (e) {
-      this.daemon.log('error', this.currentNode, `[SHELL] exit ${e.status}: ${e.message}`);
+      this.runtime.log('error', this.currentNode, `[SHELL] exit ${e.status}: ${e.message}`);
       if (step.post && step.post.on_exit_nonzero) {
         this.applyContextOverrides(step.post.on_exit_nonzero);
       }
@@ -364,7 +364,7 @@ class WorkflowEngine {
     // Depth guard
     const currentDepth = (this._subWorkflowDepth || 0) + 1;
     if (currentDepth > maxDepth) {
-      this.daemon.log('error', this.currentNode,
+      this.runtime.log('error', this.currentNode,
         `[WORKFLOW] Max nesting depth (${maxDepth}) exceeded for "${configName}"`);
       return;
     }
@@ -372,7 +372,7 @@ class WorkflowEngine {
     // Load sub-workflow config
     const configPath = path.join(__dirname, '../configs', configName, 'config.json');
     if (!fs.existsSync(configPath)) {
-      this.daemon.log('error', this.currentNode,
+      this.runtime.log('error', this.currentNode,
         `[WORKFLOW] Config not found: configs/${configName}/config.json`);
       return;
     }
@@ -386,15 +386,15 @@ class WorkflowEngine {
       Object.assign(subConfig.workflow.context, exec.context);
     }
 
-    this.daemon.log('workflow', this.currentNode,
+    this.runtime.log('workflow', this.currentNode,
       `[WORKFLOW] → ${configName} (depth ${currentDepth})`);
 
     // Create and run sub-engine
-    const subEngine = new WorkflowEngine(subConfig, this.daemon);
+    const subEngine = new WorkflowEngine(subConfig, this.runtime);
     subEngine._subWorkflowDepth = currentDepth;
     await subEngine.execute();
 
-    this.daemon.log('workflow', this.currentNode,
+    this.runtime.log('workflow', this.currentNode,
       `[WORKFLOW] ← ${configName} done`);
   }
 
@@ -404,7 +404,7 @@ class WorkflowEngine {
     const configName = exec.config; // sub-workflow to run for this group
 
     // Resolve groups
-    const data = this.daemon.getMilestones();
+    const data = this.runtime.getMilestones();
     const allGroups = data.milestones || [];
     let groups = [];
 
@@ -421,14 +421,14 @@ class WorkflowEngine {
     }
 
     if (groups.length === 0) {
-      this.daemon.log('workflow', this.currentNode,
+      this.runtime.log('workflow', this.currentNode,
         `[GROUP] No ${groupLabel} found for "${groupId}", skipping`);
       return;
     }
 
     if (!configName) {
       for (const g of groups) {
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[GROUP] ${groupLabel}/${g.id} (${g.name}) selected (no sub-workflow)`);
       }
       return;
@@ -436,7 +436,7 @@ class WorkflowEngine {
 
     // Parallel or serial execution
     if (exec.parallel && groups.length > 1) {
-      this.daemon.log('workflow', this.currentNode,
+      this.runtime.log('workflow', this.currentNode,
         `[GROUP] ${groups.length} ${groupLabel} in parallel: ${groups.map(g => g.id).join(', ')}`);
 
       await Promise.all(groups.map(group => {
@@ -455,7 +455,7 @@ class WorkflowEngine {
     } else {
       // Serial: one group at a time
       for (const group of groups) {
-        this.daemon.log('workflow', this.currentNode,
+        this.runtime.log('workflow', this.currentNode,
           `[GROUP] ${groupLabel}/${group.id} (${group.name}) — ${(group.tasks || []).length} tasks`);
 
         const subExec = {
@@ -481,12 +481,12 @@ class WorkflowEngine {
       const exec = { type: 'agent', agent: agents[0], parallel: step.maxParallel || 1 };
       await this.executeStepAgent(exec, step, ctx);
     } else if (step.parallel) {
-      this.daemon.log('workflow', this.currentNode, `[PARALLEL] ${agents.join(', ')}`);
-      await Promise.all(agents.map(a => this.daemon.runAgent(a)));
+      this.runtime.log('workflow', this.currentNode, `[PARALLEL] ${agents.join(', ')}`);
+      await Promise.all(agents.map(a => this.runtime.runAgent(a)));
     } else {
       for (const agent of agents) {
-        this.daemon.log('workflow', this.currentNode, `[EXEC] ${agent}`);
-        await this.daemon.runAgent(agent);
+        this.runtime.log('workflow', this.currentNode, `[EXEC] ${agent}`);
+        await this.runtime.runAgent(agent);
       }
     }
   }
@@ -494,8 +494,8 @@ class WorkflowEngine {
   applyContextOverrides(overrides) {
     if (overrides && overrides.set_context) {
       // 写入 daemon 的共享状态（简单 key-value）
-      if (!this.daemon._contextOverrides) this.daemon._contextOverrides = {};
-      Object.assign(this.daemon._contextOverrides, overrides.set_context);
+      if (!this.runtime._contextOverrides) this.runtime._contextOverrides = {};
+      Object.assign(this.runtime._contextOverrides, overrides.set_context);
     }
   }
 
@@ -504,7 +504,7 @@ class WorkflowEngine {
   enforcePost(post) {
     if (!post.tasks_in) return;
 
-    const tasksDir = path.join(this.daemon.projectDir, '.team/tasks');
+    const tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
     if (!fs.existsSync(tasksDir)) return;
 
     const dirs = fs.readdirSync(tasksDir).filter(d =>
@@ -525,11 +525,11 @@ class WorkflowEngine {
             task.assignee = null; // unclaim on fallback
           }
           fs.writeFileSync(taskPath, JSON.stringify(task, null, 2));
-          this.daemon.log('workflow', 'post',
+          this.runtime.log('workflow', 'post',
             `[POST] ${dir}: ${post.tasks_in} → ${newStatus}`);
         }
       } catch (e) {
-        this.daemon.log('error', 'post', `Failed: ${dir}: ${e.message}`);
+        this.runtime.log('error', 'post', `Failed: ${dir}: ${e.message}`);
       }
     }
   }
@@ -574,7 +574,7 @@ class WorkflowEngine {
       this.loopIterations.set(this.currentNode, iteration);
       ctx = this.buildContext();
       ctx.iteration = iteration;
-      this.daemon.log('workflow', this.currentNode, `[LOOP] Iteration ${iteration}`);
+      this.runtime.log('workflow', this.currentNode, `[LOOP] Iteration ${iteration}`);
 
       // 执行 steps
       if (node.steps) {
@@ -603,7 +603,7 @@ class WorkflowEngine {
       }
     }
 
-    this.daemon.log('workflow', this.currentNode, `[LOOP] Max iterations (${max})`);
+    this.runtime.log('workflow', this.currentNode, `[LOOP] Max iterations (${max})`);
   }
 
   resolveExit(exit, ctx) {
@@ -613,7 +613,7 @@ class WorkflowEngine {
       if (!this.evaluate(exit.condition, ctx)) return null;
       const target = this.resolveNext(exit.next, ctx);
       if (target) {
-        this.daemon.log('workflow', this.currentNode, `[EXIT] ${exit.condition} → ${target}`);
+        this.runtime.log('workflow', this.currentNode, `[EXIT] ${exit.condition} → ${target}`);
       }
       return target;
     }
@@ -626,7 +626,7 @@ class WorkflowEngine {
     for (const [cond, target] of Object.entries(exit)) {
       if (this.evaluate(cond, ctx)) {
         const resolved = typeof target === 'string' ? target : this.resolveNext(target, ctx);
-        this.daemon.log('workflow', this.currentNode, `[EXIT] ${cond} → ${resolved}`);
+        this.runtime.log('workflow', this.currentNode, `[EXIT] ${cond} → ${resolved}`);
         return resolved;
       }
     }
@@ -638,7 +638,7 @@ class WorkflowEngine {
   async executeWait(node, ctx) {
     const pollInterval = node.pollInterval || 10000;
     const maxWait = node.maxWait || 3600000;
-    this.daemon.log('workflow', this.currentNode, `[WAIT] ${node.description || 'waiting'}`);
+    this.runtime.log('workflow', this.currentNode, `[WAIT] ${node.description || 'waiting'}`);
 
     const self = this;
     let conditionMet = false;
@@ -652,8 +652,8 @@ class WorkflowEngine {
       if (node.when && self.evaluate(node.when, fresh)) { conditionMet = true; return; }
     };
 
-    this.daemon.on('kanban_updated', check);
-    this.daemon.on('agent_complete', check);
+    this.runtime.on('kanban_updated', check);
+    this.runtime.on('agent_complete', check);
     check();
 
     while (!conditionMet) {
@@ -662,8 +662,8 @@ class WorkflowEngine {
       check();
     }
 
-    this.daemon.off('kanban_updated', check);
-    this.daemon.off('agent_complete', check);
+    this.runtime.off('kanban_updated', check);
+    this.runtime.off('agent_complete', check);
 
     if (conditionMet) {
       await this.followNext(node.next, this.buildContext());
@@ -675,7 +675,7 @@ class WorkflowEngine {
   // ─── Reactive ───
 
   async executeReactive(node, ctx) {
-    this.daemon.log('workflow', this.currentNode, '[REACTIVE] Start');
+    this.runtime.log('workflow', this.currentNode, '[REACTIVE] Start');
     const running = new Set();
     const self = this;
     let exit = false;
@@ -703,7 +703,7 @@ class WorkflowEngine {
             if (cfg.trigger?.condition && self.evaluate(cfg.trigger.condition, fresh)) {
               if (!running.has(name)) {
                 running.add(name);
-                self.daemon.runAgent(name).finally(() => running.delete(name));
+                self.runtime.runAgent(name).finally(() => running.delete(name));
               }
             }
           }
@@ -712,8 +712,8 @@ class WorkflowEngine {
       } finally { processing = false; }
     };
 
-    this.daemon.on('kanban_updated', evaluate);
-    this.daemon.on('agent_complete', evaluate);
+    this.runtime.on('kanban_updated', evaluate);
+    this.runtime.on('agent_complete', evaluate);
     evaluate();
 
     const poll = node.pollInterval || 5000;
@@ -722,8 +722,8 @@ class WorkflowEngine {
       evaluate();
     }
 
-    this.daemon.off('kanban_updated', evaluate);
-    this.daemon.off('agent_complete', evaluate);
+    this.runtime.off('kanban_updated', evaluate);
+    this.runtime.off('agent_complete', evaluate);
 
     while (running.size > 0) {
       await new Promise(r => setTimeout(r, 2000));
@@ -772,7 +772,7 @@ class WorkflowEngine {
 
   loadNodeFromFile(filePath) {
     // 1. 项目 .team/ 目录
-    const projectPath = path.join(this.daemon.projectDir, '.team', filePath);
+    const projectPath = path.join(this.runtime.projectDir, '.team', filePath);
     if (fs.existsSync(projectPath)) {
       if (projectPath.endsWith('.js')) {
         delete require.cache[require.resolve(projectPath)];
@@ -793,7 +793,7 @@ class WorkflowEngine {
       if (fullPath.endsWith('.js')) return require(fullPath);
       return JSON.parse(fs.readFileSync(fullPath, 'utf8'));
     }
-    this.daemon.log('error', 'loadNode', `Not found: ${filePath}`);
+    this.runtime.log('error', 'loadNode', `Not found: ${filePath}`);
     return null;
   }
 
@@ -804,14 +804,14 @@ class WorkflowEngine {
       node: this.currentNode,
       visitedNodes: [...this.visitedNodes],
       iteration: this.loopIterations.get(this.currentNode) || 0,
-      isMilestoneComplete: () => this.daemon.isMilestoneComplete(),
-      hasArchitecture: () => fs.existsSync(path.join(this.daemon.projectDir, 'ARCHITECTURE.md')),
+      isMilestoneComplete: () => this.runtime.isMilestoneComplete(),
+      hasArchitecture: () => fs.existsSync(path.join(this.runtime.projectDir, 'ARCHITECTURE.md')),
       Math,
     };
 
     // daemon context overrides (from shell step post)
-    if (this.daemon._contextOverrides) {
-      Object.assign(ctx, this.daemon._contextOverrides);
+    if (this.runtime._contextOverrides) {
+      Object.assign(ctx, this.runtime._contextOverrides);
     }
 
     // workflow.context 表达式
@@ -823,7 +823,7 @@ class WorkflowEngine {
           const fn = new Function('tasks', 'gaps', 'milestones', 'files', `return ${expr}`);
           ctx[key] = fn(api.tasks, api.gaps, api.milestones, api.files);
         } catch (e) {
-          this.daemon.log('error', 'ctx', `${key}: ${e.message}`);
+          this.runtime.log('error', 'ctx', `${key}: ${e.message}`);
           ctx[key] = 0;
         }
       }
@@ -833,11 +833,11 @@ class WorkflowEngine {
   }
 
   buildContextAPI() {
-    const projectDir = this.daemon.projectDir;
+    const projectDir = this.runtime.projectDir;
     return {
       tasks: {
         byStatus: (status) => {
-          const kanban = this.daemon.getKanban();
+          const kanban = this.runtime.getKanban();
           return (kanban[status] || []).map(id => {
             try {
               return JSON.parse(fs.readFileSync(
@@ -846,7 +846,7 @@ class WorkflowEngine {
           });
         },
         all: () => {
-          const kanban = this.daemon.getKanban();
+          const kanban = this.runtime.getKanban();
           const all = [].concat(
             kanban.todo || [], kanban.inProgress || [], kanban.review || [],
             kanban.testing || [], kanban.done || [], kanban.blocked || []);
@@ -868,7 +868,7 @@ class WorkflowEngine {
       },
       milestones: {
         active: () => {
-          const data = this.daemon.getMilestones();
+          const data = this.runtime.getMilestones();
           const ms = (data.milestones || []).find(m =>
             m.status === 'active' || m.status === 'ready-for-work' || m.status === 'in-progress');
           const label = (this.config.groups && this.config.groups.label) || 'milestones';
@@ -876,7 +876,7 @@ class WorkflowEngine {
           return ms || null;
         },
         all: () => {
-          const data = this.daemon.getMilestones();
+          const data = this.runtime.getMilestones();
           return data.milestones || [];
         }
       },
@@ -906,7 +906,7 @@ class WorkflowEngine {
       const fn = new Function(...Object.keys(ctx), 'Math', `return ${expr}`);
       return fn(...Object.values(ctx), Math);
     } catch (e) {
-      this.daemon.log('error', 'eval', `${expr}: ${e.message}`);
+      this.runtime.log('error', 'eval', `${expr}: ${e.message}`);
       return false;
     }
   }
@@ -929,7 +929,7 @@ class WorkflowEngine {
     if (next.if) {
       const result = this.evaluate(next.if, ctx);
       const target = result ? next.then : next.else;
-      this.daemon.log('workflow', this.currentNode,
+      this.runtime.log('workflow', this.currentNode,
         `[BRANCH] ${next.if} → ${result} → ${target || '(end)'}`);
       return target || null;
     }
@@ -937,13 +937,13 @@ class WorkflowEngine {
     if (Array.isArray(next.branches)) {
       for (const b of next.branches) {
         if (this.evaluate(b.condition, ctx)) {
-          this.daemon.log('workflow', this.currentNode,
+          this.runtime.log('workflow', this.currentNode,
             `[BRANCH] matched: ${b.condition} → ${b.next}`);
           return b.next;
         }
       }
       const fallback = next.default || null;
-      this.daemon.log('workflow', this.currentNode,
+      this.runtime.log('workflow', this.currentNode,
         `[BRANCH] no match → default: ${fallback || '(end)'}`);
       return fallback;
     }
