@@ -1,8 +1,12 @@
 {
   "type": "loop",
-  "description": "实验循环 — 假设→修改→评测→决策",
+  "description": "实验循环 — stuck检测→假设→修改→评测→决策",
   "maxIterations": 30,
   "steps": [
+    {
+      "id": "stuck-check",
+      "execute": { "type": "function", "fn": "checkStuckExperiment" }
+    },
     {
       "id": "hypothesize",
       "execute": { "type": "agent", "agent": "scientist" }
