@@ -316,10 +316,13 @@ const server = http.createServer((req, res) => {
     const docId = pathname.replace('/doc/', '');
     const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
     
-    // 支持新配置：dashboard.left
+    // 支持新配置：dashboard.left (unified type)
     let doc = null;
     if (config.dashboard && config.dashboard.left) {
       doc = config.dashboard.left.find(function(d) { return d.id === docId; });
+      if (!doc && config.dashboard.right) {
+        doc = config.dashboard.right.find(function(d) { return d.id === docId; });
+      }
     }
     // 兼容旧配置：docs.items
     else if (config.docs && config.docs.items) {
@@ -332,13 +335,13 @@ const server = http.createServer((req, res) => {
       return;
     }
     
-    // 新配置用 path，旧配置用 file
-    const docFile = doc.path || doc.file;
+    // 新配置用 path/source，旧配置用 file
+    const docFile = doc.source || doc.path || doc.file;
     let docPath;
     
-    // 新配置：path 是相对项目根目录
-    if (doc.path) {
-      docPath = path.join(projectDir, doc.path);
+    // source/path: 相对项目根目录
+    if (doc.source || doc.path) {
+      docPath = path.join(projectDir, doc.source || doc.path);
     }
     // 旧配置：file 是相对 docs.root
     else {

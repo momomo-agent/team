@@ -27,26 +27,30 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
     document.getElementById('workflow-name').textContent = 'Standard Workflow';
   }
   
-  // v3.1: 多组件支持
-  if (config.dashboard && config.dashboard.left && config.dashboard.left[0] && config.dashboard.left[0].components) {
-    // 左侧 tabs
-    var leftTabs = config.dashboard.left.map(function(tab, i) {
-      return {
-        id: 'tab-' + i,
-        title: tab.title,
-        components: tab.components
-      };
+  var db = config.dashboard || {};
+  var leftTabs = db.left || [];
+  var rightTabs = db.right || [];
+
+  // Detect format: new unified type vs v3.1 components
+  var isUnifiedType = leftTabs.length > 0 && leftTabs[0].type && !leftTabs[0].components;
+
+  if (isUnifiedType) {
+    // New unified format: { id, title, type, source?, monitor? }
+    initializeUnifiedTabs(leftTabs, 'left');
+    if (rightTabs.length > 0) {
+      initializeUnifiedTabs(rightTabs, 'right');
+    }
+  }
+  // v3.1: components array
+  else if (leftTabs.length > 0 && leftTabs[0].components) {
+    var mapped = leftTabs.map(function(tab, i) {
+      return { id: 'tab-' + i, title: tab.title, components: tab.components };
     });
-    initializeTabs(leftTabs);
+    initializeTabs(mapped);
     
-    // 右侧 tabs
-    if (config.dashboard.right) {
-      dashboardTabs = config.dashboard.right.map(function(tab, i) {
-        return {
-          id: 'rtab-' + i,
-          title: tab.title,
-          components: tab.components
-        };
+    if (rightTabs.length > 0) {
+      dashboardTabs = rightTabs.map(function(tab, i) {
+        return { id: 'rtab-' + i, title: tab.title, components: tab.components };
       });
       initializeRightTabs(dashboardTabs);
       if (dashboardTabs.length > 0) {
@@ -55,13 +59,13 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
       }
     }
   }
-  // v3.0: 兼容旧配置
-  else if (config.dashboard && config.dashboard.left) {
-    var leftTabs = config.dashboard.left.filter(function(t) { return t.showInUI !== false; });
-    initializeTabs(leftTabs);
+  // v3.0 compat
+  else if (leftTabs.length > 0) {
+    var filtered = leftTabs.filter(function(t) { return t.showInUI !== false; });
+    initializeTabs(filtered);
     
-    if (config.dashboard.right) {
-      dashboardTabs = config.dashboard.right;
+    if (rightTabs.length > 0) {
+      dashboardTabs = rightTabs;
       initializeRightTabs(dashboardTabs);
       if (dashboardTabs.length > 0) {
         activeRightTab = dashboardTabs[0].id;
@@ -69,7 +73,7 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
       }
     }
   }
-  // v2.0: 兼容更旧配置
+  // v2.0 compat: docs.items
   else if (config.docs && config.docs.items) {
     initializeTabs(config.docs.items.filter(function(d) { return d.showInUI; }));
   }
@@ -77,6 +81,250 @@ fetch('/api/config').then(function(r) { return r.json(); }).then(function(config
   // 配置加载完成后刷新数据
   refresh();
 }).catch(function() {});
+
+// --- Component Registry ---
+var _unifiedLeftTabs = [];
+var _unifiedRightTabs = [];
+
+var ComponentRenderers = {
+  markdown: function(pane, tab) {
+    fetch('/doc/' + tab.id).then(function(r) { return r.json(); }).then(function(data) {
+      var content = data.content || data.raw || '';
+      if (typeof AgenticRender !== 'undefined' && AgenticRender.renderMarkdown) {
+        pane.innerHTML = '<div class="md-content">' + AgenticRender.renderMarkdown(content) + '</div>';
+      } else {
+        pane.innerHTML = '<div class="md-content"><pre>' + escapeHtml(content) + '</pre></div>';
+      }
+    }).catch(function() {
+      pane.innerHTML = '<div class="stage-empty">Document not found</div>';
+    });
+  },
+
+  match: function(pane, tab, gaps) {
+    var gapData = gaps[tab.id] || {};
+    var match = gapData.match != null ? gapData.match : (gapData.coverage != null ? gapData.coverage : null);
+    var color = match == null ? 'red' : (match >= 80 ? 'green' : (match >= 50 ? 'yellow' : 'red'));
+    var pct = match != null ? match : '?';
+
+    var html = '<div class="match-display">';
+    html += '<div class="match-label">' + tab.title + ' MATCH</div>';
+    html += '<div class="match-number ' + color + '">' + pct + '<span class="pct">%</span></div>';
+    html += '<div class="match-bar"><div class="match-bar-fill ' + color + '" style="width:' + (match || 0) + '%"></div></div>';
+    html += '</div>';
+
+    // Gaps list
+    if (gapData.gaps && gapData.gaps.length > 0) {
+      html += '<ul class="gap-list">';
+      gapData.gaps.forEach(function(g) { html += '<li>' + escapeHtml(typeof g === 'string' ? g : g.description || g.gap || JSON.stringify(g)) + '</li>'; });
+      html += '</ul>';
+    }
+
+    // Modules
+    if (gapData.modules && gapData.modules.length > 0) {
+      html += '<div class="module-list">';
+      gapData.modules.forEach(function(m) {
+        var st = m.status || 'missing';
+        html += '<div class="module-item"><span class="module-name">' + escapeHtml(m.name || m.module || '') + '</span>';
+        html += '<span class="module-status ' + st + '">' + st + '</span>';
+        if (m.coverage != null) html += '<span class="module-coverage">' + m.coverage + '%</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+
+    pane.innerHTML = html;
+
+    // Also load document content below
+    fetch('/doc/' + tab.id).then(function(r) { return r.json(); }).then(function(data) {
+      var content = data.content || data.raw || '';
+      if (content && typeof AgenticRender !== 'undefined') {
+        pane.innerHTML += '<div class="md-content">' + AgenticRender.renderMarkdown(content) + '</div>';
+      }
+    }).catch(function() {});
+
+    // Update tab badge
+    var badge = document.getElementById('tab-match-' + tab.id);
+    if (badge) {
+      badge.textContent = pct + '%';
+      badge.className = 'tab-match ' + color;
+    }
+  },
+
+  json: function(pane, tab) {
+    fetch('/doc/' + tab.id).then(function(r) { return r.json(); }).then(function(data) {
+      var content = data.content || data.raw || '';
+      try {
+        var parsed = JSON.parse(content);
+        pane.innerHTML = '<pre style="font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;">' + escapeHtml(JSON.stringify(parsed, null, 2)) + '</pre>';
+      } catch {
+        pane.innerHTML = '<pre style="font-size:12px;">' + escapeHtml(content) + '</pre>';
+      }
+    }).catch(function() {
+      pane.innerHTML = '<div class="stage-empty">File not found</div>';
+    });
+  },
+
+  'jsonl-chart': function(pane, tab) {
+    fetch('/doc/' + tab.id).then(function(r) { return r.json(); }).then(function(data) {
+      var raw = data.content || data.raw || '';
+      var entries = raw.split('\n').filter(Boolean).map(function(line) {
+        try { return JSON.parse(line); } catch { return null; }
+      }).filter(Boolean);
+
+      if (entries.length === 0) {
+        pane.innerHTML = '<div class="stage-empty">No experiment data yet</div>';
+        return;
+      }
+
+      // Collect numeric keys
+      var keys = {};
+      entries.forEach(function(e) {
+        Object.keys(e).forEach(function(k) {
+          if (typeof e[k] === 'number') keys[k] = true;
+        });
+      });
+      delete keys.timestamp;
+
+      var numericKeys = Object.keys(keys);
+      var html = '<div style="margin-bottom:16px">';
+      html += '<div class="section-label">Experiment Metrics (' + entries.length + ' runs)</div>';
+
+      // Latest metrics
+      var latest = entries[entries.length - 1];
+      html += '<div style="display:flex;gap:16px;margin:12px 0;flex-wrap:wrap">';
+      numericKeys.forEach(function(k) {
+        if (latest[k] != null) {
+          html += '<div style="text-align:center"><div style="font-size:10px;color:#888;text-transform:uppercase">' + k + '</div>';
+          html += '<div style="font-size:20px;font-weight:700">' + (typeof latest[k] === 'number' ? latest[k].toFixed(1) : latest[k]) + '</div></div>';
+        }
+      });
+      html += '</div>';
+
+      // Simple SVG chart for each numeric key (up to 4)
+      var chartKeys = numericKeys.slice(0, 4);
+      chartKeys.forEach(function(key) {
+        var values = entries.map(function(e) { return e[key]; }).filter(function(v) { return v != null; });
+        if (values.length < 2) return;
+
+        var min = Math.min.apply(null, values);
+        var max = Math.max.apply(null, values);
+        var range = max - min || 1;
+        var w = 400, h = 80, pad = 4;
+
+        var points = values.map(function(v, i) {
+          var x = pad + (i / (values.length - 1)) * (w - pad * 2);
+          var y = h - pad - ((v - min) / range) * (h - pad * 2);
+          return x + ',' + y;
+        }).join(' ');
+
+        // Decision markers
+        var markers = '';
+        entries.forEach(function(e, i) {
+          if (e.decision && e[key] != null) {
+            var x = pad + (i / (values.length - 1)) * (w - pad * 2);
+            var y = h - pad - ((e[key] - min) / range) * (h - pad * 2);
+            var color = e.decision === 'keep' ? '#2d8a4e' : '#dc2626';
+            markers += '<circle cx="' + x + '" cy="' + y + '" r="4" fill="' + color + '" opacity="0.8"/>';
+          }
+        });
+
+        html += '<div style="margin:8px 0">';
+        html += '<div style="font-size:10px;color:#888;margin-bottom:2px">' + key + ' (' + min.toFixed(1) + ' — ' + max.toFixed(1) + ')</div>';
+        html += '<svg viewBox="0 0 ' + w + ' ' + h + '" style="width:100%;height:' + h + 'px;background:#fafaf8;border-radius:6px;border:1px solid #eee">';
+        html += '<polyline points="' + points + '" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-linejoin="round"/>';
+        html += markers;
+        html += '</svg></div>';
+      });
+
+      // Decision log
+      var decisions = entries.filter(function(e) { return e.decision; });
+      if (decisions.length > 0) {
+        html += '<div style="margin-top:12px"><div class="section-label">Decisions</div>';
+        decisions.slice(-10).forEach(function(d) {
+          var icon = d.decision === 'keep' ? '✅' : d.decision === 'revert' ? '🔄' : '⚫';
+          var hyp = d.hypothesis || '';
+          var reason = d.reason || '';
+          html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid #f0f0ee">';
+          html += icon + ' <strong>' + escapeHtml(hyp.slice(0, 60)) + '</strong>';
+          if (reason) html += '<br><span style="color:#888;font-size:10px">' + escapeHtml(reason.slice(0, 80)) + '</span>';
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+
+      html += '</div>';
+      pane.innerHTML = html;
+    }).catch(function() {
+      pane.innerHTML = '<div class="stage-empty">Could not load metrics</div>';
+    });
+  },
+
+  pipeline: function(pane) {
+    // delegated to existing renderPipelineInPane
+    if (typeof renderPipelineInPane === 'function') renderPipelineInPane(pane);
+  },
+  kanban: function(pane) {
+    if (typeof renderKanbanInPane === 'function') renderKanbanInPane(pane);
+  },
+  groups: function(pane) {
+    if (typeof renderMilestonesInPane === 'function') renderMilestonesInPane(pane);
+  },
+  logs: function(pane) {
+    // delegated to existing log rendering in refresh
+  }
+};
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function initializeUnifiedTabs(tabs, side) {
+  var isLeft = side === 'left';
+  var tabBar = document.getElementById(isLeft ? 'tab-bar' : 'right-tab-bar');
+  var paper = tabBar.nextElementSibling;
+  tabBar.innerHTML = '';
+  paper.innerHTML = '';
+
+  if (isLeft) _unifiedLeftTabs = tabs;
+  else _unifiedRightTabs = tabs;
+
+  tabs.forEach(function(tab, i) {
+    var el = document.createElement('div');
+    el.className = (isLeft ? 'folder-tab' : 'right-tab') + (i === 0 ? ' active' : '');
+    el.dataset[isLeft ? 'tab' : 'rtab'] = tab.id;
+    
+    var label = tab.title || tab.id;
+    if (tab.type === 'match') {
+      el.innerHTML = label + ' <span class="tab-match" id="tab-match-' + tab.id + '">—</span>';
+    } else {
+      el.textContent = label;
+    }
+    tabBar.appendChild(el);
+
+    var pane = document.createElement('div');
+    pane.className = (isLeft ? 'tab-pane' : 'right-pane') + (i === 0 ? ' active' : '');
+    pane.id = (isLeft ? 'pane-' : 'rpane-') + tab.id;
+    paper.appendChild(pane);
+  });
+
+  if (tabs.length > 0) {
+    if (isLeft) activeTab = tabs[0].id;
+    else { activeRightTab = tabs[0].id; activeMobileTab = tabs[0].id; }
+  }
+}
+
+function renderUnifiedTabs(side, gaps) {
+  var tabs = side === 'left' ? _unifiedLeftTabs : _unifiedRightTabs;
+  tabs.forEach(function(tab) {
+    var pane = document.getElementById((side === 'left' ? 'pane-' : 'rpane-') + tab.id);
+    if (!pane) return;
+    var renderer = ComponentRenderers[tab.type];
+    if (renderer) {
+      if (tab.type === 'match') renderer(pane, tab, gaps || {});
+      else renderer(pane, tab);
+    }
+  });
+}
 
 function initializeTabs(tabs) {
   var tabBar = document.getElementById('tab-bar');
@@ -358,6 +606,24 @@ async function refresh() {
           renderMilestones(milestones);
         }
       }
+    }
+
+    // Unified type tabs rendering
+    if (_unifiedLeftTabs.length > 0) renderUnifiedTabs('left', gaps);
+    if (_unifiedRightTabs.length > 0) {
+      // Right-side unified tabs that are built-in types need data
+      _unifiedRightTabs.forEach(function(tab) {
+        var pane = document.getElementById('rpane-' + tab.id);
+        if (!pane) return;
+        if (tab.type === 'pipeline') renderPipelineInPane(pane, pipeline);
+        else if (tab.type === 'kanban') renderKanbanInPane(pane, kanban, milestones);
+        else if (tab.type === 'groups') renderMilestonesInPane(pane, milestones);
+        else if (tab.type === 'logs') { /* handled by refreshLogs */ }
+        else {
+          var renderer = ComponentRenderers[tab.type];
+          if (renderer) renderer(pane, tab);
+        }
+      });
     }
 
     // Sync mobile pane after all renders

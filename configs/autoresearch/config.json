@@ -2,13 +2,18 @@
   "version": "1.0",
   "_workflow": "autoresearch",
   "groups": { "label": "experiments" },
-  "docs": {
-    "root": ".",
-    "items": [
-      { "id": "vision", "name": "Vision", "file": ".team/docs/VISION.md", "showInUI": true },
-      { "id": "review", "name": "Review", "file": ".team/review.md", "showInUI": true },
-      { "id": "stuck", "name": "Stuck Signal", "file": ".team/stuck-signal.json", "showInUI": true },
-      { "id": "conclusion", "name": "Conclusion", "file": ".team/conclusion.md", "showInUI": true }
+  "dashboard": {
+    "left": [
+      { "id": "vision", "title": "Vision", "source": ".team/docs/VISION.md", "type": "markdown" },
+      { "id": "review", "title": "Review", "source": ".team/review.md", "type": "markdown" },
+      { "id": "metrics", "title": "Metrics", "source": "experiments.log", "type": "jsonl-chart" },
+      { "id": "conclusion", "title": "Conclusion", "source": ".team/conclusion.md", "type": "markdown" }
+    ],
+    "right": [
+      { "id": "pipeline", "title": "Pipeline", "type": "pipeline" },
+      { "id": "kanban", "title": "Kanban", "type": "kanban" },
+      { "id": "groups", "title": "Experiments", "type": "groups" },
+      { "id": "logs", "title": "Logs", "type": "logs" }
     ]
   },
   "workflow": {
