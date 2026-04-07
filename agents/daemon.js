@@ -97,13 +97,32 @@ class TeamDaemon {
   }
 
   _checkAllDone() {
+    // Goal: all core matches >= 90% AND no active tasks
     try {
+      // Check monitor matches
+      var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
+      if (fs.existsSync(gapsDir)) {
+        var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
+        for (var i = 0; i < coreGaps.length; i++) {
+          var gapPath = path.join(gapsDir, coreGaps[i]);
+          if (!fs.existsSync(gapPath)) continue;
+          try {
+            var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+            var match = gap.match || gap.matchPercent || gap.percentage;
+            if (match != null && match < 90) {
+              return false; // Not there yet
+            }
+          } catch {}
+        }
+      }
+
+      // Check all tasks done
       var tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
       if (!fs.existsSync(tasksDir)) return false;
       var files = fs.readdirSync(tasksDir);
       if (files.length === 0) return false;
-      for (var i = 0; i < files.length; i++) {
-        var t = JSON.parse(fs.readFileSync(path.join(tasksDir, files[i]), 'utf8'));
+      for (var j = 0; j < files.length; j++) {
+        var t = JSON.parse(fs.readFileSync(path.join(tasksDir, files[j]), 'utf8'));
         if (t.status !== 'done' && t.status !== 'cancelled') return false;
       }
       return true;
