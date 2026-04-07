@@ -1,0 +1,17 @@
+{
+  "type": "sequence",
+  "description": "实验初始化 — 建基线 + eval 脚本",
+  "steps": [
+    {
+      "id": "init-eval",
+      "when": "!hasEval",
+      "execute": { "type": "agent", "agent": "setup_agent" }
+    },
+    {
+      "id": "run-baseline",
+      "when": "!hasBaseline",
+      "execute": { "type": "agent", "agent": "evaluator" }
+    }
+  ],
+  "next": "experiment_loop"
+}

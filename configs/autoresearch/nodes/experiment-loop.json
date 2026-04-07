@@ -1,0 +1,25 @@
+{
+  "type": "loop",
+  "description": "实验循环 — 假设→修改→评测→决策",
+  "maxIterations": 30,
+  "steps": [
+    {
+      "id": "hypothesize",
+      "execute": { "type": "agent", "agent": "scientist" }
+    },
+    {
+      "id": "experiment",
+      "when": "todoCount > 0",
+      "execute": { "type": "agent", "agent": "experimenter" }
+    },
+    {
+      "id": "evaluate",
+      "when": "reviewCount > 0 || testingCount > 0 || inProgressCount > 0",
+      "execute": { "type": "agent", "agent": "evaluator" }
+    }
+  ],
+  "exit": {
+    "condition": "goalMet > 0 || (doneCount > 20)",
+    "next": "analyze"
+  }
+}

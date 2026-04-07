@@ -1,0 +1,11 @@
+{
+  "type": "sequence",
+  "description": "实验总结 — 分析所有结果，输出结论",
+  "steps": [
+    {
+      "id": "final-analysis",
+      "execute": { "type": "agent", "agent": "scientist" }
+    }
+  ],
+  "next": "complete"
+}

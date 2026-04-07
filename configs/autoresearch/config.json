@@ -1,0 +1,57 @@
+{
+  "version": "1.0",
+  "_workflow": "autoresearch",
+  "groups": { "label": "experiments" },
+  "workflow": {
+    "entry": "setup",
+    "maxConcurrency": 2,
+    "context": {
+      "todoCount": "tasks.byStatus('todo').length",
+      "doneCount": "tasks.byStatus('done').length",
+      "inProgressCount": "tasks.byStatus('inProgress').length",
+      "reviewCount": "tasks.byStatus('review').length",
+      "testingCount": "tasks.byStatus('testing').length",
+      "blockedCount": "tasks.byStatus('blocked').length",
+      "hasEval": "files.exists('eval.js') || files.exists('eval.sh') || files.exists('eval.py') ? 1 : 0",
+      "hasBaseline": "files.exists('.team/baseline.json') ? 1 : 0",
+      "goalMet": "0"
+    },
+    "nodes": {
+      "setup": "nodes/setup.json",
+      "experiment_loop": "nodes/experiment-loop.json",
+      "analyze": "nodes/analyze.json",
+      "complete": "nodes/complete.json"
+    }
+  },
+  "agents": {
+    "scientist": {
+      "prompt": "prompts/research/scientist.md",
+      "model": "claude-sonnet-4",
+      "description": "分析现状，提出改进假设",
+      "backend": "claude-code"
+    },
+    "experimenter": {
+      "prompt": "prompts/research/experimenter.md",
+      "model": "claude-sonnet-4",
+      "description": "执行实验修改（只改一个变量）",
+      "backend": "claude-code",
+      "gitCommit": true,
+      "gitPrefix": "exp"
+    },
+    "evaluator": {
+      "prompt": "prompts/research/evaluator.md",
+      "model": "claude-sonnet-4",
+      "description": "跑 eval，对比基线，决定 keep/revert",
+      "backend": "claude-code",
+      "gitCommit": true
+    },
+    "setup_agent": {
+      "prompt": "prompts/research/setup.md",
+      "model": "claude-sonnet-4",
+      "description": "建立基线和评测脚本",
+      "backend": "claude-code"
+    }
+  },
+  "git": { "commitPerTask": false },
+  "notify": {}
+}

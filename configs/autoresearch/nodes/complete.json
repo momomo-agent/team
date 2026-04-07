@@ -1,0 +1,10 @@
+{
+  "type": "sequence",
+  "description": "实验完成",
+  "steps": [
+    {
+      "id": "tag-results",
+      "execute": { "type": "function", "fn": "autoGitCommit" }
+    }
+  ]
+}
