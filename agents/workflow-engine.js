@@ -404,8 +404,8 @@ class WorkflowEngine {
     const configName = exec.config; // sub-workflow to run for this group
 
     // Resolve groups
-    const data = this.runtime.getMilestones();
-    const allGroups = data.milestones || [];
+    const data = this.runtime.getGroups();
+    const allGroups = data.groups || data.milestones || [];
     let groups = [];
 
     if (groupId === 'all') {
@@ -804,7 +804,7 @@ class WorkflowEngine {
       node: this.currentNode,
       visitedNodes: [...this.visitedNodes],
       iteration: this.loopIterations.get(this.currentNode) || 0,
-      isMilestoneComplete: () => this.runtime.isMilestoneComplete(),
+      isGroupComplete: () => this.runtime.isGroupComplete(),
       hasArchitecture: () => fs.existsSync(path.join(this.runtime.projectDir, 'ARCHITECTURE.md')),
       Math,
     };
@@ -868,16 +868,16 @@ class WorkflowEngine {
       },
       milestones: {
         active: () => {
-          const data = this.runtime.getMilestones();
-          const ms = (data.milestones || []).find(m =>
+          const data = this.runtime.getGroups();
+          const ms = (data.groups || data.milestones || []).find(m =>
             m.status === 'active' || m.status === 'ready-for-work' || m.status === 'in-progress');
           const label = (this.config.groups && this.config.groups.label) || 'milestones';
           if (ms) ms.path = path.join('.team', label, ms.id);
           return ms || null;
         },
         all: () => {
-          const data = this.runtime.getMilestones();
-          return data.milestones || [];
+          const data = this.runtime.getGroups();
+          return data.groups || data.milestones || [];
         }
       },
       files: {
@@ -895,9 +895,9 @@ class WorkflowEngine {
 
     // Condition shortcuts — convenience aliases for common expressions
     const shortcuts = {
-      'group_complete': () => ctx.isMilestoneComplete(),
-      'milestone_complete': () => ctx.isMilestoneComplete(), // backward compat alias
-      'milestoneComplete': () => ctx.isMilestoneComplete(),
+      'group_complete': () => ctx.isGroupComplete(),
+      'milestone_complete': () => ctx.isGroupComplete(), // backward compat alias
+      'milestoneComplete': () => ctx.isGroupComplete(),
       'no-architecture': () => !ctx.hasArchitecture(),
     };
     if (shortcuts[expr]) return shortcuts[expr]();

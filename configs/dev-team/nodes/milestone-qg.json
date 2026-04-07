@@ -26,7 +26,7 @@
     {
       "id": "mark-complete",
       "when": "milestoneComplete",
-      "execute": { "type": "function", "fn": "markMilestoneComplete" }
+      "execute": { "type": "function", "fn": "markGroupComplete" }
     },
     {
       "id": "auto-tag",
