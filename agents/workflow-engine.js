@@ -261,10 +261,20 @@ class WorkflowEngine {
           if (this._validateRetries[retryKey] <= maxRetries) {
             this.runtime.log('workflow', this.currentNode,
               `[VALIDATE-RETRY] ${step.id || '?'} (${this._validateRetries[retryKey]}/${maxRetries})`);
-            // Inject failure reason so agent knows why it's being re-run
+            // Run a focused fix agent instead of full retry
             const failureMsg = failures.join('; ');
-            this._writeRetryContext(step, failureMsg, this._validateRetries[retryKey]);
-            i--; // Re-run this step
+            await this._runFixAgent(step, failureMsg, this._validateRetries[retryKey]);
+            // Re-validate after fix attempt
+            const recheck = this._validateStepOutput(validate, step);
+            if (recheck.length === 0) {
+              this.runtime.log('workflow', this.currentNode,
+                `[VALIDATE-FIXED] ${step.id || '?'} passed after fix`);
+            } else {
+              this.runtime.log('workflow', this.currentNode,
+                `[VALIDATE-STILL-FAIL] ${step.id || '?'}: ${recheck.join('; ')}`);
+            }
+            // Don't i-- anymore — fix agent already ran, continue to next step
+            // If still failing after all retries, it falls through naturally
             continue;
           }
         }
@@ -578,6 +588,60 @@ class WorkflowEngine {
    *     maxRetries: 1                         // how many times to retry on failure
    *   }
    */
+  /**
+   * Run a focused fix agent to address specific validation failures.
+   * Instead of re-running the entire step, this agent only fixes what's missing.
+   */
+  async _runFixAgent(step, failureMsg, attempt) {
+    const agent = step.execute && step.execute.agent;
+    if (!agent) return;
+
+    // Write a targeted fix prompt
+    const fixPrompt =
+      `# Fix Required (attempt ${attempt})\n\n` +
+      `The previous "${agent}" agent completed but its output failed validation:\n\n` +
+      `**Failures:**\n${failureMsg.split('; ').map(f => '- ' + f).join('\n')}\n\n` +
+      `## Your Task\n\n` +
+      `Fix ONLY the issues listed above. Do not redo work that was already done correctly.\n\n` +
+      `## Working Directory\n${this.runtime.projectDir}\n\n` +
+      '## Signal Protocol\n\n' +
+      'When done, output:\n```signal\n{"status": "completed", "summary": "what you fixed"}\n```\n';
+
+    const fixPromptPath = path.join(this.runtime.projectDir, '.team', '.prompt-fix-' + Date.now() + '.md');
+    fs.writeFileSync(fixPromptPath, fixPrompt);
+
+    try {
+      // Use same backend as the original agent
+      const baseType = agent.replace(/-\d+$/, '');
+      const agentConf = (this.config.agents && this.config.agents[baseType]) || {};
+      const backend = agentConf.backend || 'claude-code';
+      const model = agentConf.model || '';
+
+      let cmd;
+      if (backend === 'claude-code') {
+        cmd = `claude --print --dangerously-skip-permissions < "${fixPromptPath}"`;
+      } else if (backend === 'llm') {
+        const modelFlag = model ? ' --model ' + model : '';
+        cmd = `cat "${fixPromptPath}" | llm${modelFlag}`;
+      } else {
+        cmd = `claude --print --dangerously-skip-permissions < "${fixPromptPath}"`;
+      }
+
+      this.runtime.log('workflow', this.currentNode, `[FIX] Running fix agent for ${agent}`);
+      const { execSync } = require('child_process');
+      execSync(cmd, {
+        cwd: this.runtime.projectDir,
+        timeout: 5 * 60 * 1000, // 5min max for fixes
+        stdio: 'inherit'
+      });
+    } catch (err) {
+      this.runtime.log('workflow', this.currentNode,
+        `[FIX-FAIL] Fix agent failed: ${err.message}`);
+    } finally {
+      try { fs.unlinkSync(fixPromptPath); } catch {}
+    }
+  }
+
   /**
    * Write retry context so the re-run agent knows what went wrong.
    * runner.js reads .team/retry-context.md and appends to prompt.
