@@ -82,11 +82,32 @@ class TeamDaemon {
       this.runtime.config = config;
       var engine = new WorkflowEngine(config, this.runtime);
       await engine.execute();
+
+      // Auto-stop when all tasks are done
+      if (this._checkAllDone()) {
+        this.runtime.log('workflow', 'daemon', '🎉 All tasks complete — shutting down');
+        this.stop();
+        return;
+      }
     } catch (err) {
       this.runtime.log('error', 'daemon', 'Error in main loop: ' + err.message);
     } finally {
       this.busy = false;
     }
+  }
+
+  _checkAllDone() {
+    try {
+      var tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
+      if (!fs.existsSync(tasksDir)) return false;
+      var files = fs.readdirSync(tasksDir);
+      if (files.length === 0) return false;
+      for (var i = 0; i < files.length; i++) {
+        var t = JSON.parse(fs.readFileSync(path.join(tasksDir, files[i]), 'utf8'));
+        if (t.status !== 'done' && t.status !== 'cancelled') return false;
+      }
+      return true;
+    } catch { return false; }
   }
 
   // ─── Start / Stop ───
