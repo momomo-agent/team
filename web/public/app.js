@@ -982,15 +982,63 @@ function renderPipelineInPane(pane, pipeline) {
 }
 
 function renderKanbanInPane(pane, kanban, milestones) {
-  var container = document.createElement('div');
-  container.id = 'rpane-kanban';
-  pane.appendChild(container);
-  renderKanban(kanban, milestones);
+  // Render directly into pane instead of relying on fixed DOM id
+  var taskToMs = {};
+  (milestones || []).forEach(function(m) {
+    (m.tasks || []).forEach(function(tid) { taskToMs[tid] = m; });
+  });
+
+  var columns = [
+    { key: 'todo', label: 'Todo', items: kanban.todo || [] },
+    { key: 'inProgress', label: 'In Progress', items: kanban.inProgress || [] },
+    { key: 'blocked', label: 'Blocked', items: kanban.blocked || [] },
+    { key: 'review', label: 'Review', items: kanban.review || [] },
+    { key: 'testing', label: 'Testing', items: kanban.testing || [] },
+    { key: 'done', label: 'Done', items: kanban.done || [] }
+  ];
+
+  var total = kanban.total || 0;
+  var completion = kanban.completion || 0;
+
+  var html = '<div class="kanban-header">';
+  html += '<span class="kanban-progress">' + completion + '% complete (' + total + ' tasks)</span>';
+  html += '</div>';
+  html += '<div class="kanban-board">';
+  columns.forEach(function(col) {
+    if (col.items.length === 0 && col.key === 'blocked') return;
+    html += '<div class="kanban-col"><div class="kanban-col-header">' + col.label + ' <span class="kanban-count">' + col.items.length + '</span></div>';
+    col.items.forEach(function(task) {
+      var ms = taskToMs[task.id];
+      var msLabel = ms ? '<span class="kanban-ms">' + (ms.name || ms.id) + '</span>' : '';
+      html += '<div class="kanban-card ' + (col.key === 'inProgress' ? 'active' : '') + '">';
+      html += '<div class="kanban-title">' + escapeHtml(task.title || task.id) + '</div>';
+      html += msLabel;
+      if (task.assignee) html += '<div class="kanban-assignee">' + escapeHtml(task.assignee) + '</div>';
+      html += '</div>';
+    });
+    html += '</div>';
+  });
+  html += '</div>';
+  pane.innerHTML = html;
 }
 
 function renderMilestonesInPane(pane, milestones) {
-  var container = document.createElement('div');
-  container.id = 'rpane-milestones';
+  if (!milestones || milestones.length === 0) {
+    pane.innerHTML = '<div style="color:#888;padding:16px;">No milestones.</div>';
+    return;
+  }
+  var html = '';
+  milestones.forEach(function(m) {
+    var pct = m.taskCount ? Math.round((m.doneCount / m.taskCount) * 100) : 0;
+    var statusIcon = m.status === 'completed' ? '✅' : m.status === 'active' ? '🔵' : '⚪';
+    html += '<div class="milestone-card">';
+    html += '<div class="ms-header">' + statusIcon + ' <strong>' + escapeHtml(m.name || m.id) + '</strong></div>';
+    html += '<div class="ms-progress"><div class="ms-bar" style="width:' + pct + '%"></div></div>';
+    html += '<div class="ms-stats">' + (m.doneCount || 0) + '/' + (m.taskCount || 0) + ' tasks (' + pct + '%)</div>';
+    html += '</div>';
+  });
+  pane.innerHTML = html;
+}
   pane.appendChild(container);
   renderMilestones(milestones);
 }
