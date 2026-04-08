@@ -830,6 +830,30 @@ function startDaemon() {
   console.log(`Log: ${logPath}`);
 }
 
+function startWatchdog() {
+  const watchdogPath = path.join(DEVTEAM_ROOT, 'scripts/watchdog.js');
+  const pidFile = path.join(DEVTEAM_ROOT, '.watchdog.pid');
+
+  // Check if already running
+  if (fs.existsSync(pidFile)) {
+    const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim());
+    try { process.kill(pid, 0); console.log(`Watchdog already running (pid: ${pid})`); return; } catch {}
+  }
+
+  const { spawn } = require('child_process');
+  const interval = findArg('--interval') || '300';
+  const logPath = path.join(DEVTEAM_ROOT, 'watchdog.log');
+  const out = fs.openSync(logPath, 'a');
+
+  const w = spawn('node', [watchdogPath, `--interval=${interval}`], {
+    detached: true,
+    stdio: ['ignore', out, out],
+  });
+  w.unref();
+  console.log(`Watchdog started (pid: ${w.pid}, interval: ${interval}s)`);
+  console.log(`Log: ${logPath}`);
+}
+
 function stopDaemon() {
   const dir = requireProject();
   const pidPath = path.join(dir, '.team/daemon.pid');
@@ -1416,6 +1440,10 @@ switch (command) {
 
   case 'overview':
     overview();
+    break;
+
+  case 'watchdog':
+    startWatchdog();
     break;
 
   default:
