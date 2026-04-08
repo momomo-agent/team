@@ -98,9 +98,8 @@ class TeamDaemon {
   }
 
   _checkAllDone() {
-    // Goal: all core matches >= 90% AND no active tasks
+    // Goal: all matches >= 90% AND zero critical gaps AND all tasks done
     try {
-      // Check monitor matches
       var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
       if (fs.existsSync(gapsDir)) {
         var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
@@ -109,9 +108,13 @@ class TeamDaemon {
           if (!fs.existsSync(gapPath)) continue;
           try {
             var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+            // Match >= 90%
             var match = gap.match || gap.matchPercent || gap.percentage;
-            if (match != null && match < 90) {
-              return false; // Not there yet
+            if (match != null && match < 90) return false;
+            // Zero critical gaps
+            var gaps = gap.gaps || [];
+            for (var k = 0; k < gaps.length; k++) {
+              if (gaps[k].severity === 'critical' && gaps[k].status !== 'implemented') return false;
             }
           } catch {}
         }

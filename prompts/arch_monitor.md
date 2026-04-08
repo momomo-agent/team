@@ -17,10 +17,11 @@ Workflow:
      "match": <number 0-100>,
      "timestamp": "<ISO 8601 timestamp>",
      "gaps": [
-       { "description": "<specific gap description>", "status": "missing|partial|implemented" }
+       { "description": "<specific gap>", "status": "missing|partial|implemented", "severity": "critical|major|minor" }
      ]
    }
    IMPORTANT: The field MUST be "match" (not "coverage"). Each gap MUST have "description" and "status" fields.
+   Severity guide: critical = blocks core functionality or breaks API contract, major = significant feature gap, minor = polish/docs/edge case.
 6. If reviewing a specific milestone, also write .team/milestones/<mN>/review/arch-check.md with:
    - Architecture conformance percentage
    - Modules that deviate from the design

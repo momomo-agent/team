@@ -301,7 +301,7 @@ function overview() {
   console.log(`\n  Team Overview — ${projects.length} projects\n`);
 
   // Header
-  const hdr = '  ' + pad('Project', 22) + pad('Daemon', 8) + pad('Tasks', 16) + pad('PRD', 6) + pad('Vision', 8) + pad('DBB', 6) + pad('Arch', 6) + 'Last Activity';
+  const hdr = '  ' + pad('Project', 22) + pad('Daemon', 8) + pad('Tasks', 16) + pad('PRD', 6) + pad('Vision', 8) + pad('DBB', 6) + pad('Arch', 6) + pad('Crit', 6) + 'Last Activity';
   console.log(hdr);
   console.log('  ' + '─'.repeat(hdr.length - 2));
 
@@ -369,6 +369,20 @@ function overview() {
       } catch {}
     }
 
+    // Critical gaps count
+    let criticalCount = 0;
+    for (const gapName of ['prd', 'vision', 'dbb', 'architecture']) {
+      const gapPath = path.join(projectDir, '.team/gaps', gapName + '.json');
+      if (!fs.existsSync(gapPath)) continue;
+      try {
+        const g = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+        (g.gaps || []).forEach(function(gap) {
+          if (gap.severity === 'critical' && gap.status !== 'implemented') criticalCount++;
+        });
+      } catch {}
+    }
+    const critStr = criticalCount === 0 ? '✅' : criticalCount + '🔴';
+
     console.log('  ' +
       pad(name, 22) +
       pad(daemonStatus, 8) +
@@ -377,6 +391,7 @@ function overview() {
       pad(readMatch('vision'), 8) +
       pad(readMatch('dbb'), 6) +
       pad(readMatch('architecture'), 6) +
+      pad(critStr, 6) +
       lastActivity
     );
   }
