@@ -310,8 +310,15 @@ function overview() {
 
     // Daemon status
     let daemonStatus = '❌';
+    const statusPath = path.join(projectDir, '.team/status.json');
+    if (fs.existsSync(statusPath)) {
+      try {
+        const s = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
+        if (s.completed) daemonStatus = '🏁';
+      } catch {}
+    }
     const pidPath = path.join(projectDir, '.team/daemon.pid');
-    if (fs.existsSync(pidPath)) {
+    if (daemonStatus === '❌' && fs.existsSync(pidPath)) {
       try {
         const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim());
         process.kill(pid, 0);

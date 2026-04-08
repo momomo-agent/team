@@ -86,7 +86,8 @@ class TeamDaemon {
       // Auto-stop when goal achieved
       if (await this._checkGoalAchieved(config)) {
         var goalDesc = (config.goal && config.goal.description) || 'goal achieved';
-        this.runtime.log('workflow', 'daemon', '🎉 Goal achieved: ' + goalDesc + ' — shutting down');
+        this.runtime.log('workflow', 'daemon', '🎉 Goal achieved: ' + goalDesc + ' — marking as completed');
+        await this._markCompleted(goalDesc);
         this.stop();
         return;
       }
@@ -95,6 +96,18 @@ class TeamDaemon {
     } finally {
       this.busy = false;
     }
+  }
+
+  async _markCompleted(goalDesc) {
+    const fs = require('fs');
+    const path = require('path');
+    const statusPath = path.join(this.projectDir, '.team/status.json');
+    const status = {
+      completed: true,
+      completedAt: new Date().toISOString(),
+      goal: goalDesc
+    };
+    fs.writeFileSync(statusPath, JSON.stringify(status, null, 2));
   }
 
   async _checkGoalAchieved(config) {
