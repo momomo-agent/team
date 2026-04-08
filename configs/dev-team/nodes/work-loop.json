@@ -7,17 +7,23 @@
       "id": "goal-check",
       "execute": {
         "type": "shell",
-        "command": "node -e \"const fs=require('fs'),path=require('path');const dir=process.cwd();const cfg=JSON.parse(fs.readFileSync(path.join(dir,'.team/config.json'),'utf8'));const goal=(cfg.goal&&cfg.goal.description)||'(no goal)';const gapsDir=path.join(dir,'.team/gaps');let summary='';if(fs.existsSync(gapsDir)){fs.readdirSync(gapsDir).filter(f=>f.endsWith('.json')).forEach(f=>{try{const g=JSON.parse(fs.readFileSync(path.join(gapsDir,f),'utf8'));summary+=f.replace('.json','')+': '+g.match+'%\\n'}catch{}})}const out='# Goal Status\\n\\n## Goal\\n'+goal+'\\n\\n## Current Match\\n'+summary;fs.writeFileSync(path.join(dir,'.team/goal-status.md'),out);console.log(out)\""
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/goal-check.js"
       }
     },
     {
       "id": "pm-dispatch",
-      "execute": { "type": "agent", "agent": "pm" }
+      "execute": {
+        "type": "agent",
+        "agent": "pm"
+      }
     },
     {
       "id": "write-dbb",
       "when": "milestoneNeedsDBB > 0",
-      "execute": { "type": "agent", "agent": "qa_lead" }
+      "execute": {
+        "type": "agent",
+        "agent": "qa_lead"
+      }
     },
     {
       "id": "parallel-execute",
@@ -27,13 +33,21 @@
           "id": "write-design",
           "when": "todoWithoutDesign > 0",
           "demand": "todoWithoutDesign",
-          "execute": { "type": "agent", "agent": "tech_lead", "parallel": 3 }
+          "execute": {
+            "type": "agent",
+            "agent": "tech_lead",
+            "parallel": 3
+          }
         },
         {
           "id": "implement",
           "when": "designedTasks > 0",
           "demand": "designedTasks",
-          "execute": { "type": "agent", "agent": "developer", "parallel": 1 },
+          "execute": {
+            "type": "agent",
+            "agent": "developer",
+            "parallel": 1
+          },
           "post": {
             "tasks_in": "inProgress",
             "success_status": "review",
@@ -44,12 +58,20 @@
           "id": "run-tests",
           "when": "reviewCount > 0 || testingCount > 0",
           "demand": "reviewCount + testingCount",
-          "execute": { "type": "agent", "agent": "tester", "parallel": 2 },
+          "execute": {
+            "type": "agent",
+            "agent": "tester",
+            "parallel": 2
+          },
           "post": {
             "tasks_in": "testing",
             "success_status": "done",
             "evidence": "test-result.md",
-            "on_fail_signal": { "contains": "fail", "not_contains": "0 fail", "status": "blocked" },
+            "on_fail_signal": {
+              "contains": "fail",
+              "not_contains": "0 fail",
+              "status": "blocked"
+            },
             "on_no_evidence": "review",
             "on_empty_evidence": "review"
           }
@@ -59,6 +81,10 @@
   ],
   "exit": {
     "condition": "todoCount == 0 && designedTasks == 0 && reviewCount == 0 && inProgressCount == 0 && testingCount == 0 && blockedCount == 0",
-    "next": { "if": "doneCount > 0", "then": "milestone_qg", "else": "standby" }
+    "next": {
+      "if": "doneCount > 0",
+      "then": "milestone_qg",
+      "else": "standby"
+    }
   }
 }
