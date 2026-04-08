@@ -32,6 +32,11 @@
       "id": "auto-tag",
       "when": "milestoneComplete",
       "execute": { "type": "function", "fn": "autoGitCommit" }
+    },
+    {
+      "id": "sync-state",
+      "when": "milestoneComplete",
+      "execute": { "type": "function", "fn": "syncTeamState" }
     }
   ],
   "next": {
