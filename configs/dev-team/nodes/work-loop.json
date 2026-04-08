@@ -75,6 +75,15 @@
             "on_no_evidence": "review",
             "on_empty_evidence": "review"
           }
+        },
+        {
+          "id": "update-architecture",
+          "when": "archTaskCount > 0",
+          "demand": "archTaskCount",
+          "execute": {
+            "type": "agent",
+            "agent": "architect"
+          }
         }
       ]
     }
