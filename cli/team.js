@@ -271,6 +271,135 @@ No explanation, just the single word.`;
   }
 }
 
+function overview() {
+  // Find all team projects: check common locations
+  const searchDirs = [
+    path.join(process.env.HOME, 'LOCAL/momo-agent/projects'),
+    path.join(process.env.HOME, 'clawd/memory'),
+    '/private/tmp'
+  ];
+
+  const projects = [];
+  for (const searchDir of searchDirs) {
+    if (!fs.existsSync(searchDir)) continue;
+    try {
+      const entries = fs.readdirSync(searchDir);
+      for (const entry of entries) {
+        const teamConfig = path.join(searchDir, entry, '.team/config.json');
+        if (fs.existsSync(teamConfig)) {
+          projects.push(path.join(searchDir, entry));
+        }
+      }
+    } catch {}
+  }
+
+  if (projects.length === 0) {
+    console.log('No team projects found.');
+    return;
+  }
+
+  console.log(`\n  Team Overview — ${projects.length} projects\n`);
+
+  // Header
+  const hdr = '  ' + pad('Project', 22) + pad('Daemon', 8) + pad('Tasks', 16) + pad('PRD', 6) + pad('Vision', 8) + pad('DBB', 6) + pad('Arch', 6) + 'Last Activity';
+  console.log(hdr);
+  console.log('  ' + '─'.repeat(hdr.length - 2));
+
+  for (const projectDir of projects) {
+    const name = path.basename(projectDir);
+
+    // Daemon status
+    let daemonStatus = '❌';
+    const pidPath = path.join(projectDir, '.team/daemon.pid');
+    if (fs.existsSync(pidPath)) {
+      try {
+        const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim());
+        process.kill(pid, 0);
+        daemonStatus = '✅';
+      } catch { daemonStatus = '❌'; }
+    }
+
+    // Tasks
+    const tasksDir = path.join(projectDir, '.team/tasks');
+    let totalTasks = 0, doneTasks = 0;
+    if (fs.existsSync(tasksDir)) {
+      try {
+        const files = fs.readdirSync(tasksDir);
+        totalTasks = files.length;
+        for (const f of files) {
+          try {
+            // Support both file-based and directory-based tasks
+            const taskPath = path.join(tasksDir, f);
+            const jsonPath = fs.statSync(taskPath).isDirectory()
+              ? path.join(taskPath, 'task.json')
+              : taskPath;
+            const t = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            if (t.status === 'done' || t.status === 'cancelled') doneTasks++;
+          } catch {}
+        }
+      } catch {}
+    }
+    const pct = totalTasks > 0 ? Math.round(doneTasks / totalTasks * 100) : 0;
+    const tasksStr = `${pct}% (${doneTasks}/${totalTasks})`;
+
+    // Gaps
+    function readMatch(gapName) {
+      const gapPath = path.join(projectDir, '.team/gaps', gapName + '.json');
+      if (!fs.existsSync(gapPath)) return '—';
+      try {
+        const g = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+        const m = g.match != null ? g.match : (g.score != null ? g.score : null);
+        if (m == null) return '—';
+        return m + '%';
+      } catch { return '—'; }
+    }
+
+    // Last activity
+    let lastActivity = '—';
+    const logPath = path.join(projectDir, '.team/daemon.log');
+    if (fs.existsSync(logPath)) {
+      try {
+        const lines = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+        for (let i = lines.length - 1; i >= 0; i--) {
+          if (!lines[i].includes('perf') && !lines[i].includes('ALERT')) {
+            const timeMatch = lines[i].match(/\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2})/);
+            if (timeMatch) { lastActivity = timeMatch[1].replace('T', ' '); break; }
+          }
+        }
+      } catch {}
+    }
+
+    console.log('  ' +
+      pad(name, 22) +
+      pad(daemonStatus, 8) +
+      pad(tasksStr, 16) +
+      pad(readMatch('prd'), 6) +
+      pad(readMatch('vision'), 8) +
+      pad(readMatch('dbb'), 6) +
+      pad(readMatch('architecture'), 6) +
+      lastActivity
+    );
+  }
+
+  // Summary
+  const alive = projects.filter(p => {
+    const pidPath = path.join(p, '.team/daemon.pid');
+    if (!fs.existsSync(pidPath)) return false;
+    try { process.kill(parseInt(fs.readFileSync(pidPath, 'utf8').trim()), 0); return true; } catch { return false; }
+  }).length;
+
+  let claudeCount = 0;
+  try { claudeCount = parseInt(require('child_process').execSync("ps aux | grep 'claude --print' | grep -v grep | wc -l", { encoding: 'utf8' }).trim()); } catch {}
+
+  console.log('\n  ' + '─'.repeat(hdr.length - 2));
+  console.log(`  Daemons: ${alive}/${projects.length} alive | Claude processes: ${claudeCount}\n`);
+}
+
+function pad(str, len) {
+  str = String(str);
+  return str + ' '.repeat(Math.max(0, len - str.length));
+}
+
 function status() {
   const dir = requireProject();
   const config = readJSON(path.join(dir, '.team/config.json'));
@@ -1270,6 +1399,10 @@ switch (command) {
     break;
   }
 
+  case 'overview':
+    overview();
+    break;
+
   default:
     console.log('DevTeam CLI v2.0\n');
     console.log('Project:');
@@ -1277,6 +1410,7 @@ switch (command) {
     console.log('  team init <dir> --config <name>   Initialize with specific workflow');
     console.log('  team auto "<goal>"                Generate workflow from goal (Phase 3)');
     console.log('  team status                       Project overview');
+    console.log('  team overview                     All projects at a glance');
     console.log('  team report                       Full situation report');
     console.log('');
     console.log('Documents:');

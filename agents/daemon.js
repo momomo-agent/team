@@ -123,7 +123,11 @@ class TeamDaemon {
       var files = fs.readdirSync(tasksDir);
       if (files.length === 0) return false;
       for (var j = 0; j < files.length; j++) {
-        var t = JSON.parse(fs.readFileSync(path.join(tasksDir, files[j]), 'utf8'));
+        var taskPath = path.join(tasksDir, files[j]);
+        var jsonPath = fs.statSync(taskPath).isDirectory()
+          ? path.join(taskPath, 'task.json')
+          : taskPath;
+        var t = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
         if (t.status !== 'done' && t.status !== 'cancelled') return false;
       }
       return true;
