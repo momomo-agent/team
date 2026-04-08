@@ -1318,6 +1318,8 @@ function updateGoalMatches() {
   var gapNames = ['prd', 'vision', 'dbb', 'architecture'];
   container.innerHTML = '';
   
+  var gapEmojis = { prd: '📋', vision: '👁️', dbb: '🧪', architecture: '🏗️' };
+  
   gapNames.forEach(function(name) {
     fetch('/api/gaps/' + name).then(function(r) { return r.json(); }).then(function(data) {
       var match = data.match || data.score || 0;
@@ -1329,7 +1331,7 @@ function updateGoalMatches() {
       
       var label = document.createElement('span');
       label.className = 'goal-match-label';
-      label.textContent = name.toUpperCase();
+      label.textContent = (gapEmojis[name] || '') + ' ' + name.toUpperCase();
       
       var value = document.createElement('span');
       value.className = 'goal-match-value';
