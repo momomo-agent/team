@@ -1,0 +1,15 @@
+{
+  "type": "sequence",
+  "description": "启动检查",
+  "steps": [
+    {
+      "id": "check-prd",
+      "execute": { "type": "agent", "agent": "prd_monitor" }
+    }
+  ],
+  "next": {
+    "if": "prdMatch >= 90",
+    "then": "complete",
+    "else": "work_loop"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "version": "3.1",
+  "description": "轻量开发团队 - 快速迭代",
+  "workflow": {
+    "entry": "startup",
+    "context": {
+      "todoCount": "tasks.byStatus('todo').length",
+      "reviewCount": "tasks.byStatus('review').length",
+      "testingCount": "tasks.byStatus('testing').length",
+      "blockedCount": "tasks.byStatus('blocked').length",
+      "prdMatch": "gaps.read('prd').match || 0"
+    },
+    "nodes": {
+      "startup": "nodes/startup.json",
+      "work_loop": "nodes/work-loop.json",
+      "standby": "nodes/standby.json",
+      "complete": "nodes/complete.json"
+    }
+  },
+  "agents": {
+    "prd_monitor": {
+      "prompt": "prompts/prd_monitor.md",
+      "model": "claude-sonnet-4",
+      "description": "评估PRD匹配度"
+    },
+    "tech_lead": {
+      "prompt": "prompts/tech_lead.md",
+      "model": "claude-sonnet-4",
+      "description": "创建任务和技术方案"
+    },
+    "developer": {
+      "prompt": "prompts/developer.md",
+      "model": "claude-sonnet-4",
+      "scalable": true,
+      "description": "实现功能",
+      "gitCommit": true,
+      "gitPrefix": "feat"
+    },
+    "tester": {
+      "prompt": "prompts/tester.md",
+      "model": "claude-sonnet-4",
+      "scalable": true,
+      "description": "验证功能",
+      "gitCommit": true,
+      "gitPrefix": "test"
+    }
+  },
+  "goal": {
+    "condition": "gaps.read('prd').match >= 90",
+    "description": "PRD ≥90%"
+  },
+  "requiredFiles": [
+    "PRD.md"
+  ]
+}

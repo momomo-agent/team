@@ -1,0 +1,43 @@
+{
+  "type": "sequence",
+  "description": "开发循环：设计 → 开发 → 测试",
+  "steps": [
+    {
+      "id": "tech-lead-plan",
+      "when": "todoCount === 0",
+      "execute": { "type": "agent", "agent": "tech_lead" }
+    },
+    {
+      "id": "develop",
+      "when": "todoCount > 0",
+      "execute": { "type": "agent", "agent": "developer" },
+      "post": {
+        "tasks_in": "todo",
+        "success_status": "review"
+      }
+    },
+    {
+      "id": "test",
+      "when": "reviewCount > 0",
+      "execute": { "type": "agent", "agent": "tester" },
+      "post": {
+        "tasks_in": "review",
+        "success_status": "done",
+        "on_fail_signal": { "contains": "fail", "status": "blocked" }
+      }
+    },
+    {
+      "id": "check-prd",
+      "execute": { "type": "agent", "agent": "prd_monitor" }
+    }
+  ],
+  "next": {
+    "if": "prdMatch >= 90",
+    "then": "complete",
+    "else": {
+      "if": "todoCount === 0 && reviewCount === 0 && blockedCount === 0",
+      "then": "standby",
+      "else": "work_loop"
+    }
+  }
+}
