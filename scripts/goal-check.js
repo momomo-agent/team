@@ -69,7 +69,39 @@ if (fs.existsSync(tasksDir)) {
   recentTasks = completed.slice(0, 5).map(t => `- ✅ ${t.title}`).join('\n');
 }
 
-// 5. Write goal-status.md
+// 5. Project artifacts — what has actually been built
+let artifacts = '';
+try {
+  // Source files
+  const srcCount = execSync("find src -type f \\( -name '*.js' -o -name '*.ts' -o -name '*.mjs' \\) 2>/dev/null | wc -l", {
+    cwd: dir, encoding: 'utf8', timeout: 5000
+  }).trim();
+  // Test files
+  const testCount = execSync("find . -path '*/test*' -name '*.js' -o -path '*/test*' -name '*.ts' -o -path '*spec*' -name '*.js' -o -path '*__tests__*' -name '*.js' 2>/dev/null | wc -l", {
+    cwd: dir, encoding: 'utf8', timeout: 5000
+  }).trim();
+  // Total lines of code (src only)
+  let srcLoc = '?';
+  try {
+    srcLoc = execSync("find src -type f \\( -name '*.js' -o -name '*.ts' \\) -exec cat {} + 2>/dev/null | wc -l", {
+      cwd: dir, encoding: 'utf8', timeout: 5000
+    }).trim();
+  } catch {}
+  // README exists?
+  const hasReadme = fs.existsSync(path.join(dir, 'README.md'));
+  // Exported API (from package.json)
+  let apiExports = '';
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+    apiExports = pkg.exports ? Object.keys(pkg.exports).join(', ') : (pkg.main || '(none)');
+  } catch {}
+
+  artifacts = `- Source files: ${srcCount} | Test files: ${testCount} | Source LOC: ${srcLoc}`;
+  artifacts += `\n- README: ${hasReadme ? '✅' : '❌'}`;
+  if (apiExports) artifacts += `\n- Exports: ${apiExports}`;
+} catch {}
+
+// 6. Write goal-status.md
 const out = `# Goal Status
 
 ## 🎯 Goal
@@ -84,6 +116,9 @@ ${recentCommits || '(none)'}
 
 ### Completed Tasks
 ${recentTasks || '(none)'}
+
+## 🏗️ Project Artifacts
+${artifacts || '(unknown)'}
 
 ---
 *Ask yourself: "What's the shortest path from here to the goal?"*
