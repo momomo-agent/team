@@ -902,6 +902,51 @@ function stopDaemon() {
   }
 }
 
+function killDaemon() {
+  const dir = requireProject();
+  const pidPath = path.join(dir, '.team/daemon.pid');
+  const { execSync } = require('child_process');
+
+  let killed = 0;
+
+  // Kill daemon process
+  if (fs.existsSync(pidPath)) {
+    const pid = readFile(pidPath).trim();
+    try {
+      process.kill(parseInt(pid), 'SIGKILL');
+      console.log(`Killed daemon (pid: ${pid})`);
+      killed++;
+    } catch (err) {
+      console.log(`Daemon process ${pid} not found (already dead)`);
+    }
+    try { fs.unlinkSync(pidPath); } catch {}
+  }
+
+  // Kill all Claude Code agents for this project
+  try {
+    const result = execSync(
+      `pgrep -f "claude --print.*${dir}" 2>/dev/null || true`,
+      { encoding: 'utf8', timeout: 5000 }
+    ).trim();
+    if (result) {
+      const pids = result.split('\n').filter(Boolean);
+      for (const pid of pids) {
+        try {
+          process.kill(parseInt(pid), 'SIGKILL');
+          console.log(`Killed agent (pid: ${pid})`);
+          killed++;
+        } catch {}
+      }
+    }
+  } catch {}
+
+  if (killed === 0) {
+    console.log('No processes to kill');
+  } else {
+    console.log(`Killed ${killed} process(es)`);
+  }
+}
+
 function agents() {
   const dir = requireProject();
   const agentStatus = readJSON(path.join(dir, '.team/agent-status.json'));
@@ -1420,6 +1465,10 @@ switch (command) {
 
   case 'stop':
     stopDaemon();
+    break;
+
+  case 'kill':
+    killDaemon();
     break;
 
   case 'agents':
