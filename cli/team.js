@@ -311,19 +311,26 @@ function overview() {
     // Daemon status
     let daemonStatus = '❌';
     const statusPath = path.join(projectDir, '.team/status.json');
+    let isCompleted = false;
     if (fs.existsSync(statusPath)) {
       try {
         const s = JSON.parse(fs.readFileSync(statusPath, 'utf8'));
-        if (s.completed) daemonStatus = '🏁';
+        if (s.completed) { daemonStatus = '🏁'; isCompleted = true; }
       } catch {}
     }
     const pidPath = path.join(projectDir, '.team/daemon.pid');
-    if (daemonStatus === '❌' && fs.existsSync(pidPath)) {
+    if (!isCompleted && fs.existsSync(pidPath)) {
       try {
         const pid = parseInt(fs.readFileSync(pidPath, 'utf8').trim());
         process.kill(pid, 0);
         daemonStatus = '✅';
-      } catch { daemonStatus = '❌'; }
+      } catch { 
+        // pid file exists but process dead = manually stopped
+        daemonStatus = '⏸️';
+      }
+    } else if (!isCompleted && !fs.existsSync(pidPath)) {
+      // no pid file and not completed = never started or manually stopped
+      daemonStatus = '⏸️';
     }
 
     // Tasks
