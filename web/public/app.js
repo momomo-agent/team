@@ -14,6 +14,9 @@ var dashboardTabs = [];
 fetch('/api/config').then(function(r) { return r.json(); }).then(function(config) {
   teamConfig = config;
   
+  // 显示 Goal Banner
+  renderGoalBanner(config);
+
   // 显示 workflow 名称
   if (config._workflow) {
     document.getElementById('workflow-name').textContent = 'Workflow: ' + config._workflow;
@@ -1293,6 +1296,63 @@ document.getElementById('toggle-daemon').addEventListener('click', function() {
   });
 });
 
+// --- Goal Banner ---
+function renderGoalBanner(config) {
+  var banner = document.getElementById('goal-banner');
+  if (!banner) return;
+  var goal = config.goal && config.goal.description;
+  if (!goal) { banner.style.display = 'none'; return; }
+  
+  banner.style.display = 'flex';
+  document.getElementById('goal-text').textContent = '🎯 ' + goal;
+  
+  // Matches will be filled by refresh() from gap data
+  updateGoalMatches();
+}
+
+function updateGoalMatches() {
+  var container = document.getElementById('goal-matches');
+  if (!container) return;
+  
+  // Fetch all gaps
+  var gapNames = ['prd', 'vision', 'dbb', 'architecture'];
+  container.innerHTML = '';
+  
+  gapNames.forEach(function(name) {
+    fetch('/api/gaps/' + name).then(function(r) { return r.json(); }).then(function(data) {
+      var match = data.match || data.score || 0;
+      var gaps = data.gaps || [];
+      var criticals = gaps.filter(function(g) { return g.severity === 'critical' && g.status !== 'implemented'; });
+      
+      var item = document.createElement('span');
+      item.className = 'goal-match-item';
+      
+      var label = document.createElement('span');
+      label.className = 'goal-match-label';
+      label.textContent = name.toUpperCase();
+      
+      var value = document.createElement('span');
+      value.className = 'goal-match-value';
+      value.textContent = match + '%';
+      if (match >= 90) value.classList.add('good');
+      else if (match >= 75) value.classList.add('warn');
+      else value.classList.add('bad');
+      
+      item.appendChild(label);
+      item.appendChild(value);
+      
+      if (criticals.length > 0) {
+        var crit = document.createElement('span');
+        crit.className = 'goal-critical';
+        crit.textContent = criticals.length + '🔴';
+        item.appendChild(crit);
+      }
+      
+      container.appendChild(item);
+    }).catch(function() {});
+  });
+}
+
 // --- Auto-refresh ---
-setInterval(refresh, 5000);
+setInterval(function() { refresh(); updateGoalMatches(); }, 5000);
 // refresh() 已在配置加载后调用

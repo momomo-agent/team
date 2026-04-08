@@ -237,6 +237,12 @@ const server = http.createServer((req, res) => {
     const config = readJSON(configPath) || {};
     sendJSON(config);
   }
+  else if (pathname.startsWith('/api/gaps/')) {
+    const gapName = pathname.replace('/api/gaps/', '');
+    const gapPath = path.join(projectDir, '.team/gaps', gapName + '.json');
+    const data = readJSON(gapPath) || { match: 0, gaps: [] };
+    sendJSON(data);
+  }
   else if (pathname === '/status') {
     const config = readJSON(path.join(projectDir, '.team/config.json')) || {};
     const running = isDaemonRunning();

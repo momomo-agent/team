@@ -28,6 +28,16 @@
 
     /* Top Bar */
     .topbar { background: transparent; padding: 10px 24px; display: flex; align-items: center; gap: 14px; min-height: 48px; }
+    .goal-banner { padding: 8px 24px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #eee; font-size: 13px; }
+    .goal-text { font-weight: 600; color: #333; white-space: nowrap; }
+    .goal-matches { display: flex; gap: 12px; flex-wrap: wrap; }
+    .goal-match-item { display: flex; align-items: center; gap: 4px; }
+    .goal-match-label { color: #888; font-size: 11px; text-transform: uppercase; }
+    .goal-match-value { font-weight: 600; font-size: 13px; }
+    .goal-match-value.good { color: #22c55e; }
+    .goal-match-value.warn { color: #f59e0b; }
+    .goal-match-value.bad { color: #ef4444; }
+    .goal-critical { color: #ef4444; font-weight: 600; font-size: 12px; margin-left: 8px; }
     .project-info { display: flex; flex-direction: column; gap: 2px; }
     .project-name { font-size: 15px; font-weight: 700; color: var(--text); white-space: nowrap; line-height: 1.2; }
     .workflow-name { font-size: 11px; font-weight: 500; color: var(--dim); white-space: nowrap; line-height: 1.2; }
@@ -330,6 +340,12 @@
       <span class="agent-count" id="agent-count"></span>
       <button id="toggle-daemon" class="daemon-btn">Start</button>
     </div>
+  </div>
+
+  <!-- Goal Banner -->
+  <div class="goal-banner" id="goal-banner" style="display:none">
+    <div class="goal-text" id="goal-text"></div>
+    <div class="goal-matches" id="goal-matches"></div>
   </div>
 
   <div class="main">
