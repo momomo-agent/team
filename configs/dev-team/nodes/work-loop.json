@@ -11,6 +11,13 @@
       }
     },
     {
+      "id": "process-crs",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/process-crs.js"
+      }
+    },
+    {
       "id": "pm-dispatch",
       "execute": {
         "type": "agent",
