@@ -29,3 +29,9 @@ Rules:
 - Do NOT modify PRD.md or EXPECTED_DBB.md
 - Be specific about which PRD features are missing/partial
 - Include coverage estimates
+STABILITY RULE:
+- Before writing the gap file, read the EXISTING gap file first
+- If your gap list is essentially the same (same descriptions, same statuses), keep the SAME match score
+- Only change match% when gaps actually change (new gaps found, old gaps resolved, status changes)
+- The match score must be CONSISTENT with the gap list — don't give 12% for 8 gaps when you gave 88% for the same 8 gaps last time
+- If in doubt, calculate: match = 100 - (missing_count * 10 + partial_count * 5)
