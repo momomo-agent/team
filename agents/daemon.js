@@ -84,8 +84,8 @@ class TeamDaemon {
       await engine.execute();
 
       // Auto-stop when goal achieved
-      if (this._checkAllDone()) {
-        var goalDesc = (config.goal && config.goal.description) || 'all tasks done + monitors ≥90%';
+      if (await this._checkGoalAchieved(config)) {
+        var goalDesc = (config.goal && config.goal.description) || 'goal achieved';
         this.runtime.log('workflow', 'daemon', '🎉 Goal achieved: ' + goalDesc + ' — shutting down');
         this.stop();
         return;
@@ -97,30 +97,9 @@ class TeamDaemon {
     }
   }
 
-  _checkAllDone() {
-    // Goal: all matches >= 90% AND zero critical gaps AND all tasks done
+  async _checkGoalAchieved(config) {
+    // Fast check first: any active tasks? If yes, not done
     try {
-      var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
-      if (fs.existsSync(gapsDir)) {
-        var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
-        for (var i = 0; i < coreGaps.length; i++) {
-          var gapPath = path.join(gapsDir, coreGaps[i]);
-          if (!fs.existsSync(gapPath)) continue;
-          try {
-            var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
-            // Match >= 90%
-            var match = gap.match || gap.matchPercent || gap.percentage;
-            if (match != null && match < 90) return false;
-            // Zero critical gaps
-            var gaps = gap.gaps || [];
-            for (var k = 0; k < gaps.length; k++) {
-              if (gaps[k].severity === 'critical' && gaps[k].status !== 'implemented') return false;
-            }
-          } catch {}
-        }
-      }
-
-      // Check all tasks done
       var tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
       if (!fs.existsSync(tasksDir)) return false;
       var files = fs.readdirSync(tasksDir);
@@ -130,11 +109,74 @@ class TeamDaemon {
         var jsonPath = fs.statSync(taskPath).isDirectory()
           ? path.join(taskPath, 'task.json')
           : taskPath;
-        var t = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-        if (t.status !== 'done' && t.status !== 'cancelled') return false;
+        try {
+          var t = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+          if (t.status !== 'done' && t.status !== 'cancelled') return false;
+        } catch {}
       }
-      return true;
     } catch { return false; }
+
+    // All tasks done — now ask LLM: is the goal achieved?
+    var goal = config.goal && config.goal.description;
+    if (!goal) return true; // No goal defined, tasks done = done
+
+    // Gather context for LLM
+    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
+    var gapSummary = '';
+    if (fs.existsSync(gapsDir)) {
+      var gapFiles = fs.readdirSync(gapsDir).filter(function(f) { return f.endsWith('.json'); });
+      for (var i = 0; i < gapFiles.length; i++) {
+        try {
+          var gap = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[i]), 'utf8'));
+          var criticals = (gap.gaps || []).filter(function(g) {
+            return g.severity === 'critical' && g.status !== 'implemented';
+          });
+          gapSummary += gapFiles[i].replace('.json', '') + ': match=' + (gap.match || '?') + '%, ' +
+            criticals.length + ' critical gaps\n';
+        } catch {}
+      }
+    }
+
+    var prompt = 'Goal: ' + goal + '\n\n' +
+      'Current status:\n' + gapSummary + '\n' +
+      'All tasks are done.\n\n' +
+      'Is the goal achieved? Answer ONLY "yes" or "no".';
+
+    var tmpFile = '/tmp/team-goal-check-' + Date.now() + '.txt';
+    try {
+      fs.writeFileSync(tmpFile, prompt);
+      var { execSync } = require('child_process');
+      var result = execSync('llm --max-tokens 5 < ' + tmpFile, {
+        encoding: 'utf8', timeout: 30000
+      }).trim().toLowerCase();
+      fs.unlinkSync(tmpFile);
+      this.runtime.log('workflow', 'daemon', '[GOAL-CHECK] ' + result);
+      return result.includes('yes');
+    } catch (err) {
+      try { fs.unlinkSync(tmpFile); } catch {}
+      // LLM failed, fall back to match >= 90% + 0 critical
+      return this._checkMatchAndCritical();
+    }
+  }
+
+  _checkMatchAndCritical() {
+    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
+    if (!fs.existsSync(gapsDir)) return true;
+    var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
+    for (var i = 0; i < coreGaps.length; i++) {
+      var gapPath = path.join(gapsDir, coreGaps[i]);
+      if (!fs.existsSync(gapPath)) continue;
+      try {
+        var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+        var match = gap.match || gap.matchPercent || gap.percentage;
+        if (match != null && match < 90) return false;
+        var gaps = gap.gaps || [];
+        for (var k = 0; k < gaps.length; k++) {
+          if (gaps[k].severity === 'critical' && gaps[k].status !== 'implemented') return false;
+        }
+      } catch {}
+    }
+    return true;
   }
 
   // ─── Start / Stop ───
