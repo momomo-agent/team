@@ -4,6 +4,13 @@
   "maxIterations": 50,
   "steps": [
     {
+      "id": "goal-check",
+      "execute": {
+        "type": "shell",
+        "command": "node -e \"const fs=require('fs'),path=require('path');const dir=process.cwd();const cfg=JSON.parse(fs.readFileSync(path.join(dir,'.team/config.json'),'utf8'));const goal=(cfg.goal&&cfg.goal.description)||'(no goal)';const gapsDir=path.join(dir,'.team/gaps');let summary='';if(fs.existsSync(gapsDir)){fs.readdirSync(gapsDir).filter(f=>f.endsWith('.json')).forEach(f=>{try{const g=JSON.parse(fs.readFileSync(path.join(gapsDir,f),'utf8'));summary+=f.replace('.json','')+': '+g.match+'%\\n'}catch{}})}const out='# Goal Status\\n\\n## Goal\\n'+goal+'\\n\\n## Current Match\\n'+summary;fs.writeFileSync(path.join(dir,'.team/goal-status.md'),out);console.log(out)\""
+      }
+    },
+    {
       "id": "pm-dispatch",
       "execute": { "type": "agent", "agent": "pm" }
     },
