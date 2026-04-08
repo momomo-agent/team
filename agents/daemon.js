@@ -98,7 +98,7 @@ class TeamDaemon {
   }
 
   async _checkGoalAchieved(config) {
-    // Fast check first: any active tasks? If yes, not done
+    // Fast check 1: any active tasks? If yes, not done
     try {
       var tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
       if (!fs.existsSync(tasksDir)) return false;
@@ -116,9 +116,19 @@ class TeamDaemon {
       }
     } catch { return false; }
 
-    // All tasks done — now ask LLM: is the goal achieved?
+    // Fast check 2: hard match threshold — ANY core gap below 90% = not achieved
+    // This is the authoritative check. LLM judgment is supplementary, not primary.
+    if (!this._checkMatchAndCritical()) {
+      var failedGaps = this._getFailedGaps();
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL-CHECK] Hard check FAILED — ' + failedGaps + '. Not stopping.');
+      return false;
+    }
+
+    // All tasks done AND all core gaps >= 90% with no criticals.
+    // Optionally ask LLM for nuanced judgment (e.g. goal has custom conditions).
     var goal = config.goal && config.goal.description;
-    if (!goal) return true; // No goal defined, tasks done = done
+    if (!goal) return true; // No goal defined, tasks done + metrics pass = done
 
     // Gather context for LLM
     var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
@@ -139,7 +149,7 @@ class TeamDaemon {
 
     var prompt = 'Goal: ' + goal + '\n\n' +
       'Current status:\n' + gapSummary + '\n' +
-      'All tasks are done.\n\n' +
+      'All tasks are done and all core metrics are >= 90%.\n\n' +
       'Is the goal achieved? Answer ONLY "yes" or "no".';
 
     var tmpFile = '/tmp/team-goal-check-' + Date.now() + '.txt';
@@ -150,13 +160,45 @@ class TeamDaemon {
         encoding: 'utf8', timeout: 30000
       }).trim().toLowerCase();
       fs.unlinkSync(tmpFile);
-      this.runtime.log('workflow', 'daemon', '[GOAL-CHECK] ' + result);
+      this.runtime.log('workflow', 'daemon', '[GOAL-CHECK] LLM says: ' + result +
+        ' (hard check already passed)');
       return result.includes('yes');
     } catch (err) {
       try { fs.unlinkSync(tmpFile); } catch {}
-      // LLM failed, fall back to match >= 90% + 0 critical
-      return this._checkMatchAndCritical();
+      // LLM failed but hard check already passed — safe to stop
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL-CHECK] LLM unavailable, but hard check passed. Stopping.');
+      return true;
     }
+  }
+
+  /**
+   * Returns a human-readable string of which gaps failed the threshold.
+   */
+  _getFailedGaps() {
+    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
+    if (!fs.existsSync(gapsDir)) return 'no gap data';
+    var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
+    var failures = [];
+    for (var i = 0; i < coreGaps.length; i++) {
+      var gapPath = path.join(gapsDir, coreGaps[i]);
+      if (!fs.existsSync(gapPath)) continue;
+      try {
+        var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
+        var match = gap.match || gap.matchPercent || gap.percentage;
+        var name = coreGaps[i].replace('.json', '');
+        if (match != null && match < 90) {
+          failures.push(name + '=' + match + '%');
+        }
+        var gaps = gap.gaps || [];
+        var critCount = 0;
+        for (var k = 0; k < gaps.length; k++) {
+          if (gaps[k].severity === 'critical' && gaps[k].status !== 'implemented') critCount++;
+        }
+        if (critCount > 0) failures.push(name + ' has ' + critCount + ' critical gaps');
+      } catch {}
+    }
+    return failures.length > 0 ? failures.join(', ') : 'unknown';
   }
 
   _checkMatchAndCritical() {
