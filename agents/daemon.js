@@ -116,31 +116,88 @@ class TeamDaemon {
       }
     } catch { return false; }
 
-    // 2. Evaluate goal condition — the goal itself is the judge
-    //    goal.condition is the same expression language as workflow context
-    //    (e.g. "gaps.read('vision').match >= 90 && gaps.read('prd').match >= 90")
-    //    No LLM needed. The goal defines its own success criteria.
-    var goal = config.goal;
-    if (!goal) return true; // No goal defined, tasks done = done
+    // 2. Goal check: condition (facts) AND judgment (LLM)
+    //
+    //    A goal has two dimensions:
+    //    - condition: measurable criteria (match >= 90, tests pass, files exist)
+    //    - description: the intent behind the goal ("production-ready", "clean arch")
+    //
+    //    Both must agree. condition checks facts, LLM checks judgment.
+    //    Neither is a fallback for the other — they're two halves of one decision.
+    //
+    //    condition alone catches "numbers look good but it's actually broken"
+    //    LLM alone catches "everything looks fine" when PRD is at 55%
+    //    Together: facts AND judgment = confidence to stop.
 
+    var goal = config.goal;
+    if (!goal) return true; // No goal, tasks done = done
+
+    // ── Gather current state (shared by both checks) ──
+    var state = this._gatherGoalState();
+
+    // ── Facts: evaluate condition expression ──
+    var conditionPassed = true;
     if (goal.condition) {
-      var result = this._evaluateGoalCondition(goal.condition);
+      conditionPassed = this._evaluateGoalCondition(goal.condition);
       this.runtime.log('workflow', 'daemon',
-        '[GOAL-CHECK] condition: ' + goal.condition + ' → ' + result);
-      return result;
+        '[GOAL] condition: ' + goal.condition + ' → ' + conditionPassed);
+      if (!conditionPassed) return false; // Facts say no — stop here, don't waste an LLM call
     }
 
-    // Fallback for goals without condition: description-only goals
-    // Conservative: all tasks done but no measurable condition = not achieved
+    // ── Judgment: LLM evaluates whether the goal is truly met ──
+    if (goal.description) {
+      var judgmentPassed = await this._evaluateGoalJudgment(goal, state);
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL] judgment: ' + judgmentPassed);
+      if (!judgmentPassed) return false;
+    }
+
+    // Both passed (or only one dimension was defined and it passed)
     this.runtime.log('workflow', 'daemon',
-      '[GOAL-CHECK] No condition defined, only description: "' +
-      (goal.description || '') + '". Add goal.condition for auto-termination.');
-    return false;
+      '[GOAL] ✅ Both facts and judgment agree — goal achieved');
+    return true;
   }
 
   /**
-   * Evaluate a goal condition expression using the same API as workflow context.
-   * Reads gap files, tasks, milestones directly — no LLM involved.
+   * Gather current project state for goal evaluation.
+   * Used by both condition eval and LLM judgment.
+   */
+  _gatherGoalState() {
+    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
+    var gapSummary = {};
+    var gapDetails = '';
+    if (fs.existsSync(gapsDir)) {
+      var gapFiles = fs.readdirSync(gapsDir).filter(function(f) { return f.endsWith('.json'); });
+      for (var i = 0; i < gapFiles.length; i++) {
+        try {
+          var gap = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[i]), 'utf8'));
+          var name = gapFiles[i].replace('.json', '');
+          gapSummary[name] = gap.match || 0;
+          var criticals = (gap.gaps || []).filter(function(g) {
+            return g.severity === 'critical' && g.status !== 'implemented';
+          });
+          var partials = (gap.gaps || []).filter(function(g) {
+            return g.status === 'partial';
+          });
+          gapDetails += name + ': ' + (gap.match || 0) + '%';
+          if (criticals.length > 0) gapDetails += ' (' + criticals.length + ' critical)';
+          if (partials.length > 0) gapDetails += ' (' + partials.length + ' partial)';
+          gapDetails += '\n';
+          // Include specific gap descriptions for LLM context
+          criticals.forEach(function(c) {
+            gapDetails += '  ⚠️ ' + (c.description || c.name || 'unnamed') + '\n';
+          });
+          partials.forEach(function(p) {
+            gapDetails += '  ◐ ' + (p.description || p.name || 'unnamed') + '\n';
+          });
+        } catch {}
+      }
+    }
+    return { gapSummary: gapSummary, gapDetails: gapDetails };
+  }
+
+  /**
+   * Evaluate goal condition expression using the same API as workflow context.
    */
   _evaluateGoalCondition(expr) {
     var self = this;
@@ -177,7 +234,63 @@ class TeamDaemon {
       return !!fn(gaps, tasks, milestones, files);
     } catch (err) {
       this.runtime.log('error', 'daemon',
-        '[GOAL-CHECK] Failed to evaluate condition: ' + err.message);
+        '[GOAL] Failed to evaluate condition: ' + err.message);
+      return false;
+    }
+  }
+
+  /**
+   * LLM judgment: given the goal description and current state,
+   * does the project truly meet the goal's intent?
+   *
+   * This is not a fallback — it's the qualitative half of the decision.
+   * The prompt is structured to prevent false positives:
+   * - Shows exact numbers so LLM can't hallucinate
+   * - Asks for reasoning before yes/no
+   * - Biases toward "no" when uncertain
+   */
+  async _evaluateGoalJudgment(goal, state) {
+    var prompt =
+      '# Goal Achievement Review\n\n' +
+      '## Goal\n' + (goal.description || '(no description)') + '\n\n' +
+      (goal.condition ? '## Quantitative Criteria\n`' + goal.condition + '`\n(Already verified as passing.)\n\n' : '') +
+      '## Current Project State\n' + state.gapDetails + '\n' +
+      '## Instructions\n' +
+      'You are reviewing whether this project has genuinely achieved its goal.\n' +
+      'The numbers above are facts — do not dispute them.\n' +
+      'But numbers passing thresholds does not automatically mean the goal is met.\n\n' +
+      'Consider:\n' +
+      '- Are there critical or partial gaps that undermine the goal\'s intent?\n' +
+      '- Do the remaining issues matter for what the goal is trying to achieve?\n' +
+      '- Would a reasonable engineer say "yes, this is done"?\n\n' +
+      'If uncertain, say NO. False negatives (continuing work) are cheaper than false positives (stopping too early).\n\n' +
+      'Answer with one line of reasoning, then YES or NO on the last line.\n';
+
+    var tmpFile = '/tmp/team-goal-judgment-' + Date.now() + '.txt';
+    try {
+      fs.writeFileSync(tmpFile, prompt);
+      var { execSync } = require('child_process');
+      var result = execSync('llm --max-tokens 100 < ' + tmpFile, {
+        encoding: 'utf8', timeout: 30000
+      }).trim();
+      fs.unlinkSync(tmpFile);
+
+      // Extract YES/NO from last line
+      var lines = result.split('\n').filter(function(l) { return l.trim(); });
+      var lastLine = (lines[lines.length - 1] || '').trim().toUpperCase();
+      var reasoning = lines.slice(0, -1).join(' ').trim();
+
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL] LLM reasoning: ' + (reasoning || '(none)').slice(0, 200));
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL] LLM verdict: ' + lastLine);
+
+      return lastLine === 'YES';
+    } catch (err) {
+      try { fs.unlinkSync(tmpFile); } catch {}
+      // LLM unavailable — cannot make judgment call, don't stop
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL] LLM unavailable (' + err.message + '). Cannot judge — continuing.');
       return false;
     }
   }
