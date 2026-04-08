@@ -98,7 +98,7 @@ class TeamDaemon {
   }
 
   async _checkGoalAchieved(config) {
-    // Fast check first: any active tasks? If yes, not done
+    // 1. Any active tasks? If yes, not done
     try {
       var tasksDir = path.join(this.runtime.projectDir, '.team/tasks');
       if (!fs.existsSync(tasksDir)) return false;
@@ -116,67 +116,70 @@ class TeamDaemon {
       }
     } catch { return false; }
 
-    // All tasks done — now ask LLM: is the goal achieved?
-    var goal = config.goal && config.goal.description;
+    // 2. Evaluate goal condition — the goal itself is the judge
+    //    goal.condition is the same expression language as workflow context
+    //    (e.g. "gaps.read('vision').match >= 90 && gaps.read('prd').match >= 90")
+    //    No LLM needed. The goal defines its own success criteria.
+    var goal = config.goal;
     if (!goal) return true; // No goal defined, tasks done = done
 
-    // Gather context for LLM
-    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
-    var gapSummary = '';
-    if (fs.existsSync(gapsDir)) {
-      var gapFiles = fs.readdirSync(gapsDir).filter(function(f) { return f.endsWith('.json'); });
-      for (var i = 0; i < gapFiles.length; i++) {
-        try {
-          var gap = JSON.parse(fs.readFileSync(path.join(gapsDir, gapFiles[i]), 'utf8'));
-          var criticals = (gap.gaps || []).filter(function(g) {
-            return g.severity === 'critical' && g.status !== 'implemented';
-          });
-          gapSummary += gapFiles[i].replace('.json', '') + ': match=' + (gap.match || '?') + '%, ' +
-            criticals.length + ' critical gaps\n';
-        } catch {}
-      }
+    if (goal.condition) {
+      var result = this._evaluateGoalCondition(goal.condition);
+      this.runtime.log('workflow', 'daemon',
+        '[GOAL-CHECK] condition: ' + goal.condition + ' → ' + result);
+      return result;
     }
 
-    var prompt = 'Goal: ' + goal + '\n\n' +
-      'Current status:\n' + gapSummary + '\n' +
-      'All tasks are done.\n\n' +
-      'Is the goal achieved? Answer ONLY "yes" or "no".';
-
-    var tmpFile = '/tmp/team-goal-check-' + Date.now() + '.txt';
-    try {
-      fs.writeFileSync(tmpFile, prompt);
-      var { execSync } = require('child_process');
-      var result = execSync('llm --max-tokens 5 < ' + tmpFile, {
-        encoding: 'utf8', timeout: 30000
-      }).trim().toLowerCase();
-      fs.unlinkSync(tmpFile);
-      this.runtime.log('workflow', 'daemon', '[GOAL-CHECK] ' + result);
-      return result.includes('yes');
-    } catch (err) {
-      try { fs.unlinkSync(tmpFile); } catch {}
-      // LLM failed, fall back to match >= 90% + 0 critical
-      return this._checkMatchAndCritical();
-    }
+    // Fallback for goals without condition: description-only goals
+    // Conservative: all tasks done but no measurable condition = not achieved
+    this.runtime.log('workflow', 'daemon',
+      '[GOAL-CHECK] No condition defined, only description: "' +
+      (goal.description || '') + '". Add goal.condition for auto-termination.');
+    return false;
   }
 
-  _checkMatchAndCritical() {
-    var gapsDir = path.join(this.runtime.projectDir, '.team/gaps');
-    if (!fs.existsSync(gapsDir)) return true;
-    var coreGaps = ['prd.json', 'vision.json', 'dbb.json', 'architecture.json'];
-    for (var i = 0; i < coreGaps.length; i++) {
-      var gapPath = path.join(gapsDir, coreGaps[i]);
-      if (!fs.existsSync(gapPath)) continue;
-      try {
-        var gap = JSON.parse(fs.readFileSync(gapPath, 'utf8'));
-        var match = gap.match || gap.matchPercent || gap.percentage;
-        if (match != null && match < 90) return false;
-        var gaps = gap.gaps || [];
-        for (var k = 0; k < gaps.length; k++) {
-          if (gaps[k].severity === 'critical' && gaps[k].status !== 'implemented') return false;
-        }
-      } catch {}
+  /**
+   * Evaluate a goal condition expression using the same API as workflow context.
+   * Reads gap files, tasks, milestones directly — no LLM involved.
+   */
+  _evaluateGoalCondition(expr) {
+    var self = this;
+    var gaps = {
+      read: function(name) {
+        var gapPath = path.join(self.runtime.projectDir, '.team/gaps', name + '.json');
+        try { return JSON.parse(fs.readFileSync(gapPath, 'utf8')); }
+        catch { return { match: 0 }; }
+      }
+    };
+    var tasks = {
+      byStatus: function(status) {
+        var kanban = self.runtime.getKanban();
+        return kanban[status] || [];
+      }
+    };
+    var milestones = {
+      active: function() {
+        var data = self.runtime.getGroups();
+        var ms = (data.groups || data.milestones || []);
+        return ms.find(function(m) {
+          return m.status === 'active' || m.status === 'in-progress';
+        }) || null;
+      }
+    };
+    var files = {
+      exists: function(p) {
+        return fs.existsSync(path.join(self.runtime.projectDir, p));
+      }
+    };
+
+    try {
+      var fn = new Function('gaps', 'tasks', 'milestones', 'files', 'return ' + expr);
+      return !!fn(gaps, tasks, milestones, files);
+    } catch (err) {
+      this.runtime.log('error', 'daemon',
+        '[GOAL-CHECK] Failed to evaluate condition: ' + err.message);
+      return false;
     }
-    return true;
   }
 
   // ─── Start / Stop ───
