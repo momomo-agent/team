@@ -1,5 +1,5 @@
 /**
- * DevTeam Monitor — 独立健康监控
+ * Team Monitor — 独立健康监控
  * 
  * 监控指标：
  * 1. agent_timeout  — agent 运行超过阈值
@@ -10,7 +10,7 @@
  * 6. high_failure_rate — agent 失败率过高
  * 
  * 使用:
- *   const m = new DevTeamMonitor(daemon);
+ *   const m = new TeamMonitor(daemon);
  *   m.start();
  * 
  * 告警通过 daemon.eventBus 发送 'monitor_alert' 事件。
@@ -32,7 +32,7 @@ const DEFAULT_THRESHOLDS = {
   minSamplesForRate: 5,
 };
 
-class DevTeamMonitor {
+class TeamMonitor {
   constructor(daemon, options = {}) {
     this.daemon = daemon;
     this.projectDir = daemon.projectDir;
@@ -270,7 +270,7 @@ class DevTeamMonitor {
   }
 }
 
-module.exports = DevTeamMonitor;
+module.exports = TeamMonitor;
 
 // CLI 独立运行支持
 if (require.main === module) {
@@ -295,6 +295,6 @@ if (require.main === module) {
     },
     eventBus: null,
   };
-  const m = new DevTeamMonitor(mockDaemon);
+  const m = new TeamMonitor(mockDaemon);
   m.start();
 }

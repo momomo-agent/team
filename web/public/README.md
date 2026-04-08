@@ -1,4 +1,4 @@
-# DevTeam Dashboard
+# Team Dashboard
 
 部署到 Cloudflare Pages 的静态版本
 

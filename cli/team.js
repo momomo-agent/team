@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DevTeam CLI - AI Development Team Management
+ * Team CLI - AI Development Team Management
  *
  * Commands (from DESIGN.md):
  *   team init <dir>                    Initialize project
@@ -51,7 +51,7 @@ function getProjectDir() {
 function requireProject() {
   const dir = getProjectDir();
   if (!fs.existsSync(path.join(dir, '.team/config.json'))) {
-    console.error('Error: Not in a DevTeam project. Run "team init <dir>" first.');
+    console.error('Error: Not in a Team project. Run "team init <dir>" first.');
     process.exit(1);
   }
   return dir;
@@ -93,7 +93,7 @@ function init(dirName) {
   const projectDir = path.resolve(dirName);
 
   if (fs.existsSync(path.join(projectDir, '.team/config.json'))) {
-    console.error(`Error: ${dirName} is already a DevTeam project`);
+    console.error(`Error: ${dirName} is already a Team project`);
     process.exit(1);
   }
 
@@ -158,7 +158,7 @@ function init(dirName) {
     _workflow: workflowName,
     name: path.basename(projectDir),
     created: new Date().toISOString(),
-    devteamVersion: '2.0'
+    teamVersion: '2.0'
   });
 
   // Set goal from user input
@@ -480,7 +480,7 @@ function report() {
   const now = new Date();
 
   console.log('\n══════════════════════════════════════════');
-  console.log('  DevTeam Report — ' + (config.name || path.basename(dir)));
+  console.log('  Team Report — ' + (config.name || path.basename(dir)));
   console.log('  ' + now.toISOString().replace('T', ' ').slice(0, 19));
   console.log('══════════════════════════════════════════');
 
@@ -1419,7 +1419,7 @@ switch (command) {
     break;
 
   default:
-    console.log('DevTeam CLI v2.0\n');
+    console.log('Team CLI v2.0\n');
     console.log('Project:');
     console.log('  team init <dir>                   Initialize project');
     console.log('  team init <dir> --config <name>   Initialize with specific workflow');

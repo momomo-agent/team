@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DevTeam Agent Runner
+ * Team Agent Runner
  * Executes Claude Code for each agent type with strict permission enforcement.
  * Prompts loaded from prompts/*.md, permissions from config.
  */

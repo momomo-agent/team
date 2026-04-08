@@ -769,7 +769,7 @@ async function renderComponent(pane, comp, gaps) {
 
 // --- Top Bar ---
 function renderTopBar(status, agents) {
-  var projectName = (status.project && status.project.name) || 'DevTeam';
+  var projectName = (status.project && status.project.name) || 'Team';
   var running = status.daemon;
 
   document.getElementById('project-name').textContent = projectName;

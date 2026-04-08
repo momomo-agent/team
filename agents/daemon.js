@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DevTeam Daemon — cron + process guard
+ * Team Daemon — cron + process guard
  *
  * Only two jobs:
  *   1. Periodically call engine.execute()
@@ -16,7 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const WorkflowEngine = require('./workflow-engine');
 const Runtime = require('../lib/runtime');
-const DevTeamMonitor = require('./monitor');
+const TeamMonitor = require('./monitor');
 
 const SAFETY_INTERVAL = 10 * 60 * 1000; // 10 min
 const AGENT_TIMEOUT = 65 * 60 * 1000; // 65 min (matches runtime.js)
@@ -336,10 +336,10 @@ class TeamDaemon {
 
     this.running = true;
     this.runtime.log('agent_start', 'daemon',
-      'DevTeam daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
+      'Team daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
 
     // Health monitor — pass runtime as the "daemon" interface monitor expects
-    this.healthMonitor = new DevTeamMonitor({
+    this.healthMonitor = new TeamMonitor({
       projectDir: this.projectDir,
       log: (...args) => this.runtime.log(...args),
       getKanban: () => this.runtime.getKanban(),
@@ -382,7 +382,7 @@ class TeamDaemon {
     this.runtime.resetStuckAgents();
     var pidPath = path.join(this.projectDir, '.team/daemon.pid');
     try { fs.unlinkSync(pidPath); } catch {}
-    this.runtime.log('agent_complete', 'daemon', 'DevTeam daemon stopped');
+    this.runtime.log('agent_complete', 'daemon', 'Team daemon stopped');
   }
 }
 

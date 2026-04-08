@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DevTeam Web Dashboard Server
+ * Team Web Dashboard Server
  *
  * API Endpoints:
  *   /status          - Project config, daemon status, agent count, match percentages
@@ -252,7 +252,7 @@ const server = http.createServer((req, res) => {
     
     // Extract project name from VISION.md title
     const visionPath = path.join(projectDir, 'VISION.md');
-    let projectName = config.name || 'DevTeam';
+    let projectName = config.name || 'Team';
     try {
       const visionContent = fs.readFileSync(visionPath, 'utf8');
       const titleMatch = visionContent.match(/^#\s+(.+)$/m);
@@ -588,6 +588,6 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`DevTeam Dashboard: http://localhost:${PORT}`);
+  console.log(`Team Dashboard: http://localhost:${PORT}`);
   console.log(`Project: ${projectDir}`);
 });
