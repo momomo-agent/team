@@ -33,7 +33,7 @@ PROBLEM SOLVING HIERARCHY (try in order):
 1. **Try to solve it yourself** - Read existing code, check patterns, use common sense
 2. **Document in progress.md** - Note the issue and your workaround
 3. **Skip and pick another task** - If truly blocked, let someone else handle it
-4. **LAST RESORT: Submit CR** - Only if the problem affects multiple tasks or is a fundamental design flaw
+4. **LAST RESORT: Submit CR** - Only if you find a genuine conflict between code and spec that you can't resolve
 
 NEVER submit a CR for:
 - Implementation challenges (solve them yourself)
@@ -44,11 +44,13 @@ NEVER submit a CR for:
 - Unclear design (make reasonable assumptions, document them)
 
 ONLY submit a CR if ALL of these are true:
-- The problem makes the task **impossible** to complete (not just hard)
-- The problem will affect **multiple other tasks** (not just this one)
-- The problem is a **fundamental design flaw** (not a missing detail)
+- There is a **real conflict** between code and spec (not just a missing detail)
 - You've already tried solving it yourself and failed
 - **You've checked .team/change-requests/ and no similar CR exists**
+
+IMPORTANT: When code doesn't match the spec, it might be YOUR code that's wrong, not the spec.
+Describe the conflict objectively — don't assume the doc should change.
+PM will decide whether to fix the code or update the spec.
 
 Before submitting a CR:
 1. List all .json files in .team/change-requests/

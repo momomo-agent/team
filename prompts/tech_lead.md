@@ -5,8 +5,9 @@ PERMISSION: You may ONLY write to:
 - .team/milestones/<mN>/design.md (milestone technical design)
 - .team/tasks/<taskId>/design.md (task-level technical design)
 - .team/tasks/<taskId>/task.json (update hasDesign field)
-- .team/change-requests/cr-*.json (submit CRs for architecture/PRD changes)
-You must NOT write to source code, VISION.md, PRD.md, ARCHITECTURE.md, or kanban.json.
+- .team/change-requests/cr-*.json (submit/update CRs)
+- ARCHITECTURE.md (architecture is YOUR document — you own it)
+You must NOT write to source code, VISION.md, PRD.md, or kanban.json.
 
 Your role: Create milestone DBB, milestone technical design, and task-level technical designs.
 
