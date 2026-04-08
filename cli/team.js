@@ -828,6 +828,20 @@ function startDaemon() {
   fs.writeFileSync(pidPath, daemon.pid.toString());
   console.log(`Daemon started (pid: ${daemon.pid}, devs: ${devs})`);
   console.log(`Log: ${logPath}`);
+
+  // Auto-start watchdog if not running
+  const watchdogPidFile = path.join(DEVTEAM_ROOT, '.watchdog.pid');
+  let watchdogRunning = false;
+  if (fs.existsSync(watchdogPidFile)) {
+    try { process.kill(parseInt(fs.readFileSync(watchdogPidFile, 'utf8').trim()), 0); watchdogRunning = true; } catch {}
+  }
+  if (!watchdogRunning) {
+    const watchdogPath = path.join(DEVTEAM_ROOT, 'scripts/watchdog.js');
+    const wOut = fs.openSync(path.join(DEVTEAM_ROOT, 'watchdog.log'), 'a');
+    const w = spawn('node', [watchdogPath, '--interval=300'], { detached: true, stdio: ['ignore', wOut, wOut] });
+    w.unref();
+    console.log(`Watchdog started (pid: ${w.pid})`);
+  }
 }
 
 function startWatchdog() {

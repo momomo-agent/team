@@ -82,7 +82,6 @@ class TeamDaemon {
       this.runtime.config = config;
       var engine = new WorkflowEngine(config, this.runtime);
       await engine.execute();
-      await this._syncTeamState();
 
       // Auto-stop when goal achieved
       if (await this._checkGoalAchieved(config)) {
@@ -95,38 +94,6 @@ class TeamDaemon {
       this.runtime.log('error', 'daemon', 'Error in main loop: ' + err.message);
     } finally {
       this.busy = false;
-    }
-  }
-
-  async _syncTeamState() {
-    // Sync .team/ state to git after each cycle
-    try {
-      const { execSync } = require('child_process');
-      const cwd = this.projectDir;
-      
-      // Check if git repo exists
-      try {
-        execSync('git rev-parse --git-dir', { cwd, stdio: 'ignore' });
-      } catch {
-        return; // Not a git repo, skip
-      }
-
-      // Add .team/ changes
-      execSync('git add .team/', { cwd, stdio: 'ignore' });
-      
-      // Check if there are changes to commit
-      try {
-        execSync('git diff --cached --quiet', { cwd, stdio: 'ignore' });
-        return; // No changes
-      } catch {
-        // Has changes, commit and push
-        const timestamp = new Date().toISOString().replace(/T/, ' ').replace(/\..+/, '');
-        execSync(`git commit -m "team: sync state ${timestamp}"`, { cwd, stdio: 'ignore' });
-        execSync('git push', { cwd, stdio: 'ignore' });
-        this.runtime.log('workflow', 'daemon', '✓ Synced .team/ state to git');
-      }
-    } catch (err) {
-      this.runtime.log('error', 'daemon', 'Failed to sync .team/ state: ' + err.message);
     }
   }
 
