@@ -30,10 +30,28 @@ class TeamDaemon {
     this.running = false;
     this.busy = false;
     this._busySince = 0;
+    this._startAt = Date.now();
     this.perfMonitorInterval = null;
 
     // Runtime handles all capabilities
     this.runtime = new Runtime(projectDir);
+  }
+
+  // ─── Lifecycle Log ───
+
+  _lifecycle(event, reason) {
+    var dir = path.join(this.projectDir, '.team', 'daemon');
+    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+    var line = JSON.stringify({
+      ts: new Date().toISOString(),
+      event: event,
+      pid: process.pid,
+      reason: reason || null,
+      uptime: Math.round((Date.now() - this._startAt) / 1000)
+    }) + '\n';
+    try {
+      fs.appendFileSync(path.join(dir, 'lifecycle.log'), line);
+    } catch {}
   }
 
   // ─── Config Loading ───
@@ -66,6 +84,7 @@ class TeamDaemon {
       var watchdogLimit = AGENT_TIMEOUT + 10 * 60 * 1000;
       if (busyElapsed > watchdogLimit) {
         this.runtime.log('error', 'daemon', 'Watchdog: busy for ' + Math.round(busyElapsed/60000) + 'min, force reset');
+        this._lifecycle('watchdog_reset', 'busy_' + Math.round(busyElapsed/60000) + 'min');
         this.runtime.killOrphanAgents();
         this.busy = false;
       } else {
@@ -87,12 +106,14 @@ class TeamDaemon {
       if (await this._checkGoalAchieved(config)) {
         var goalDesc = (config.goal && config.goal.description) || 'goal achieved';
         this.runtime.log('workflow', 'daemon', '🎉 Goal achieved: ' + goalDesc + ' — marking as completed');
+        this._lifecycle('stop', 'goal_achieved');
         await this._markCompleted(goalDesc);
         this.stop();
         return;
       }
     } catch (err) {
       this.runtime.log('error', 'daemon', 'Error in main loop: ' + err.message);
+      this._lifecycle('error', err.message);
     } finally {
       this.busy = false;
     }
@@ -348,6 +369,7 @@ class TeamDaemon {
     }
 
     this.running = true;
+    this._lifecycle('start', 'manual');
     this.runtime.log('agent_start', 'daemon',
       'Team daemon started (safety=' + (SAFETY_INTERVAL / 1000) + 's, timeout=' + (AGENT_TIMEOUT / 1000) + 's)');
 
@@ -386,8 +408,9 @@ class TeamDaemon {
     }, SAFETY_INTERVAL);
   }
 
-  stop() {
+  stop(reason) {
     this.running = false;
+    this._lifecycle('stop', reason || 'manual');
     if (this.timer) clearInterval(this.timer);
     if (this.perfMonitorInterval) clearInterval(this.perfMonitorInterval);
     if (this.healthMonitor) this.healthMonitor.stop();
@@ -405,16 +428,19 @@ var projectDir = process.argv[2] || process.cwd();
 var daemon = new TeamDaemon(projectDir);
 
 process.on('uncaughtException', function(err) {
+  daemon._lifecycle('crash', 'uncaughtException: ' + err.message);
   console.error('[' + new Date().toISOString().replace('T', ' ').slice(0, 19) + '] Uncaught:', err.message);
 });
 process.on('unhandledRejection', function(err) {
-  console.error('[' + new Date().toISOString().replace('T', ' ').slice(0, 19) + '] Unhandled:', err && err.message ? err.message : err);
+  var msg = err && err.message ? err.message : String(err);
+  daemon._lifecycle('error', 'unhandledRejection: ' + msg);
+  console.error('[' + new Date().toISOString().replace('T', ' ').slice(0, 19) + '] Unhandled:', msg);
 });
 
 module.exports = TeamDaemon;
 
 if (require.main === module) {
-  process.on('SIGINT', function() { daemon.stop(); process.exit(0); });
-  process.on('SIGTERM', function() { daemon.stop(); process.exit(0); });
+  process.on('SIGINT', function() { daemon.stop('sigint'); process.exit(0); });
+  process.on('SIGTERM', function() { daemon.stop('sigterm'); process.exit(0); });
   daemon.start();
 }
