@@ -13,19 +13,19 @@
     "designer": {
       "role": "UI/UX Designer",
       "model": "claude-sonnet-4",
-      "prompt": "prompts/designer.md",
+      "prompt": "configs/design-iteration/prompts/designer.md",
       "capabilities": ["read", "write_design"]
     },
     "developer": {
       "role": "Frontend Developer",
       "model": "claude-sonnet-4",
-      "prompt": "prompts/developer.md",
+      "prompt": "configs/design-iteration/prompts/developer.md",
       "capabilities": ["read", "write_code", "git"]
     },
     "reviewer": {
       "role": "Design Reviewer",
       "model": "claude-opus-4",
-      "prompt": "prompts/reviewer.md",
+      "prompt": "configs/design-iteration/prompts/reviewer.md",
       "capabilities": ["read", "screenshot", "evaluate"]
     }
   }
