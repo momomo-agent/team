@@ -29,11 +29,17 @@
         "type": "shell",
         "command": "expr $(cat .team/iteration-count.txt) + 1 > .team/iteration-count.txt"
       }
+    },
+    {
+      "id": "check-completion",
+      "execute": {
+        "type": "shell",
+        "command": "ITER=$(cat .team/iteration-count.txt); GAP=$(node -pe \"JSON.parse(require('fs').readFileSync('.team/iterations/review-${ITER}.json','utf8')).gapScore||100\"); test \"$GAP\" -lt 20 -o \"$ITER\" -ge 20"
+      },
+      "next": {
+        "success": "complete",
+        "failure": "design-loop"
+      }
     }
-  ],
-  "next": {
-    "if": "gapScore < 20 || iteration >= 20",
-    "then": "complete",
-    "else": "design-loop"
-  }
+  ]
 }

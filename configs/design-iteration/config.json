@@ -12,19 +12,16 @@
   "agents": {
     "designer": {
       "role": "UI/UX Designer",
-      "model": "claude-sonnet-4-20250514",
       "prompt": "configs/design-iteration/prompts/designer.md",
       "capabilities": ["read", "write_design"]
     },
     "developer": {
       "role": "Frontend Developer",
-      "model": "claude-sonnet-4-20250514",
       "prompt": "configs/design-iteration/prompts/developer.md",
       "capabilities": ["read", "write_code", "git"]
     },
     "reviewer": {
       "role": "Design Reviewer",
-      "model": "claude-opus-4-20250514",
       "prompt": "configs/design-iteration/prompts/reviewer.md",
       "capabilities": ["read", "screenshot", "evaluate"]
     }
