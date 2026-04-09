@@ -1,0 +1,23 @@
+{
+  "type": "sequence",
+  "description": "单元测试 — 跑项目的 test suite",
+  "steps": [
+    {
+      "id": "run-unit-tests",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js test",
+        "timeout": 180000
+      },
+      "post": {
+        "on_exit_0": { "unitPassed": 1 },
+        "on_exit_nonzero": { "unitPassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "unitPassed == 1",
+    "then": "integration_test",
+    "else": "blocked"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": "6.0",
+  "description": "Developer sub-team — 读 spec → 实现 → 自验证 → commit",
+  "workflow": {
+    "entry": "read-spec",
+    "context": {
+      "buildPassed": "0",
+      "testPassed": "0",
+      "retryCount": "0"
+    },
+    "nodes": {
+      "read-spec": "nodes/read-spec.json",
+      "implement": "nodes/implement.json",
+      "self-verify-build": "nodes/self-verify-build.json",
+      "self-verify-test": "nodes/self-verify-test.json",
+      "commit": "nodes/commit.json",
+      "complete": "nodes/complete.json",
+      "failed": "nodes/failed.json"
+    }
+  },
+  "agents": {
+    "developer": {
+      "prompt": "../../prompts/developer.md",
+      "model": "claude-sonnet-4",
+      "description": "实现功能代码",
+      "gitCommit": false
+    }
+  }
+}

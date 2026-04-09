@@ -1,0 +1,27 @@
+{
+  "type": "sequence",
+  "description": "编译验证 — 失败则回到 implement 重试（最多 3 次）",
+  "steps": [
+    {
+      "id": "run-build",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js build",
+        "timeout": 120000
+      },
+      "post": {
+        "on_exit_0": { "buildPassed": 1, "retryCount": 0 },
+        "on_exit_nonzero": { "buildPassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "buildPassed == 1",
+    "then": "self_verify_test",
+    "else": {
+      "if": "retryCount < 3",
+      "then": "implement",
+      "else": "failed"
+    }
+  }
+}

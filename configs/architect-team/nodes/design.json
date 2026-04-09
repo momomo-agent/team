@@ -1,0 +1,14 @@
+{
+  "type": "sequence",
+  "description": "Architect agent 设计/更新 ARCHITECTURE.md",
+  "steps": [
+    {
+      "id": "write-architecture",
+      "execute": {
+        "type": "agent",
+        "agent": "architect"
+      }
+    }
+  ],
+  "next": "validate_refs"
+}

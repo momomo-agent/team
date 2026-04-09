@@ -1,0 +1,23 @@
+{
+  "type": "sequence",
+  "description": "编译检查 — 代码必须能编译",
+  "steps": [
+    {
+      "id": "build-check",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js build",
+        "timeout": 120000
+      },
+      "post": {
+        "on_exit_0": { "buildPassed": 1 },
+        "on_exit_nonzero": { "buildPassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "buildPassed == 1",
+    "then": "unit_test",
+    "else": "blocked"
+  }
+}

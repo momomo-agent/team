@@ -1,0 +1,4 @@
+{
+  "type": "terminal",
+  "description": "验证失败超过重试次数，任务标记 blocked"
+}

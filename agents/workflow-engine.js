@@ -358,8 +358,9 @@ class WorkflowEngine {
           await this.runtime.executeFunction(exec.fn, ctx);
         }
         break;
-      case 'workflow':
-        await this.executeStepWorkflow(exec, step, ctx);
+      case 'team':
+      case 'workflow': // backward compat
+        await this.executeStepTeam(exec, step, ctx);
         break;
       case 'group':
         await this.executeStepGroup(exec, step, ctx);
@@ -432,7 +433,7 @@ class WorkflowEngine {
     }
   }
 
-  async executeStepWorkflow(exec, step, ctx) {
+  async executeStepTeam(exec, step, ctx) {
     const configName = exec.config;
     const maxDepth = exec.maxDepth || 5;
 
@@ -440,7 +441,7 @@ class WorkflowEngine {
     const currentDepth = (this._subWorkflowDepth || 0) + 1;
     if (currentDepth > maxDepth) {
       this.runtime.log('error', this.currentNode,
-        `[WORKFLOW] Max nesting depth (${maxDepth}) exceeded for "${configName}"`);
+        `[TEAM] Max nesting depth (${maxDepth}) exceeded for "${configName}"`);
       return;
     }
 
@@ -448,7 +449,7 @@ class WorkflowEngine {
     const configPath = path.join(__dirname, '../configs', configName, 'config.json');
     if (!fs.existsSync(configPath)) {
       this.runtime.log('error', this.currentNode,
-        `[WORKFLOW] Config not found: configs/${configName}/config.json`);
+        `[TEAM] Config not found: configs/${configName}/config.json`);
       return;
     }
 
@@ -462,7 +463,7 @@ class WorkflowEngine {
     }
 
     this.runtime.log('workflow', this.currentNode,
-      `[WORKFLOW] → ${configName} (depth ${currentDepth})`);
+      `[TEAM] → ${configName} (depth ${currentDepth})`);
 
     // Create and run sub-engine
     const subEngine = new WorkflowEngine(subConfig, this.runtime);
@@ -470,7 +471,7 @@ class WorkflowEngine {
     await subEngine.execute();
 
     this.runtime.log('workflow', this.currentNode,
-      `[WORKFLOW] ← ${configName} done`);
+      `[TEAM] ← ${configName} done`);
   }
 
   async executeStepGroup(exec, step, ctx) {
@@ -525,7 +526,7 @@ class WorkflowEngine {
             currentGroupTasks: (group.tasks || []).length
           })
         };
-        return this.executeStepWorkflow(subExec, step, ctx);
+        return this.executeStepTeam(subExec, step, ctx);
       }));
     } else {
       // Serial: one group at a time
@@ -543,7 +544,7 @@ class WorkflowEngine {
             currentGroupTasks: (group.tasks || []).length
           })
         };
-        await this.executeStepWorkflow(subExec, step, ctx);
+        await this.executeStepTeam(subExec, step, ctx);
       }
     }
   }

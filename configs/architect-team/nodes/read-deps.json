@@ -1,0 +1,14 @@
+{
+  "type": "sequence",
+  "description": "读取项目依赖的真实 API 签名",
+  "steps": [
+    {
+      "id": "scan-deps",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/scan-deps.js"
+      }
+    }
+  ],
+  "next": "design"
+}

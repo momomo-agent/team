@@ -1,0 +1,27 @@
+{
+  "type": "sequence",
+  "description": "验证 ARCHITECTURE.md 引用的 API 是否真实存在",
+  "steps": [
+    {
+      "id": "check-refs",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/validate-arch-refs.js",
+        "timeout": 60000
+      },
+      "post": {
+        "on_exit_0": { "refsValid": 1 },
+        "on_exit_nonzero": { "refsValid": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "refsValid == 1",
+    "then": "complete",
+    "else": {
+      "if": "retryCount < 2",
+      "then": "read_deps",
+      "else": "complete"
+    }
+  }
+}

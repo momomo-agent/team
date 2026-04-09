@@ -1,0 +1,30 @@
+{
+  "version": "6.0",
+  "description": "Tester sub-team — 编译检查 → 单元测试 → 集成测试 → e2e → 报告",
+  "workflow": {
+    "entry": "compile-check",
+    "context": {
+      "buildPassed": "0",
+      "unitPassed": "0",
+      "integrationPassed": "0",
+      "e2ePassed": "0",
+      "hasE2E": "files.exists('.team/verify.json') && JSON.parse(files.read('.team/verify.json')).e2e ? 1 : 0"
+    },
+    "nodes": {
+      "compile-check": "nodes/compile-check.json",
+      "unit-test": "nodes/unit-test.json",
+      "integration-test": "nodes/integration-test.json",
+      "e2e-test": "nodes/e2e-test.json",
+      "report": "nodes/report.json",
+      "complete": "nodes/complete.json",
+      "blocked": "nodes/blocked.json"
+    }
+  },
+  "agents": {
+    "tester": {
+      "prompt": "../../prompts/tester.md",
+      "model": "claude-sonnet-4",
+      "description": "编写和运行测试"
+    }
+  }
+}

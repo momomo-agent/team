@@ -1,0 +1,15 @@
+{
+  "type": "sequence",
+  "description": "读取任务 spec、设计文档、历史错误日志",
+  "steps": [
+    {
+      "id": "read-verify-errors",
+      "description": "读取历史验证错误，避免重复犯错",
+      "execute": {
+        "type": "shell",
+        "command": "cat .team/verify-errors/latest-build.log 2>/dev/null || echo 'No previous build errors'"
+      }
+    }
+  ],
+  "next": "implement"
+}

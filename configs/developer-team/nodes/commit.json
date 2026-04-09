@@ -1,0 +1,14 @@
+{
+  "type": "sequence",
+  "description": "Git commit 通过验证的代码",
+  "steps": [
+    {
+      "id": "git-commit",
+      "execute": {
+        "type": "shell",
+        "command": "git add -A && git diff --cached --quiet || git commit -m 'feat: implement task' 2>&1"
+      }
+    }
+  ],
+  "next": "complete"
+}

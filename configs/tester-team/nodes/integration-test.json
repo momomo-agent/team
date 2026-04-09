@@ -1,0 +1,34 @@
+{
+  "type": "sequence",
+  "description": "集成测试 — tester agent 写集成测试并运行",
+  "steps": [
+    {
+      "id": "write-integration-tests",
+      "execute": {
+        "type": "agent",
+        "agent": "tester"
+      }
+    },
+    {
+      "id": "run-integration-tests",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js test",
+        "timeout": 180000
+      },
+      "post": {
+        "on_exit_0": { "integrationPassed": 1 },
+        "on_exit_nonzero": { "integrationPassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "integrationPassed == 1",
+    "then": {
+      "if": "hasE2E == 1",
+      "then": "e2e_test",
+      "else": "report"
+    },
+    "else": "blocked"
+  }
+}

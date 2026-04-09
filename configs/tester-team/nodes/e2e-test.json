@@ -1,0 +1,23 @@
+{
+  "type": "sequence",
+  "description": "端到端测试 — 用 agent-control 或 verify.e2e 命令",
+  "steps": [
+    {
+      "id": "run-e2e",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js e2e",
+        "timeout": 300000
+      },
+      "post": {
+        "on_exit_0": { "e2ePassed": 1 },
+        "on_exit_nonzero": { "e2ePassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "e2ePassed == 1",
+    "then": "report",
+    "else": "blocked"
+  }
+}

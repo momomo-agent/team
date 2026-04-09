@@ -1,0 +1,19 @@
+{
+  "type": "sequence",
+  "description": "Developer 实现代码",
+  "steps": [
+    {
+      "id": "implement-code",
+      "execute": {
+        "type": "agent",
+        "agent": "developer"
+      },
+      "post": {
+        "tasks_in": "inProgress",
+        "success_status": "inProgress",
+        "on_no_evidence": "inProgress"
+      }
+    }
+  ],
+  "next": "self_verify_build"
+}

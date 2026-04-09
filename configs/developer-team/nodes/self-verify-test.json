@@ -1,0 +1,27 @@
+{
+  "type": "sequence",
+  "description": "测试验证 — 失败则回到 implement 重试（最多 3 次）",
+  "steps": [
+    {
+      "id": "run-test",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js test",
+        "timeout": 180000
+      },
+      "post": {
+        "on_exit_0": { "testPassed": 1, "retryCount": 0 },
+        "on_exit_nonzero": { "testPassed": 0 }
+      }
+    }
+  ],
+  "next": {
+    "if": "testPassed == 1",
+    "then": "commit",
+    "else": {
+      "if": "retryCount < 3",
+      "then": "implement",
+      "else": "failed"
+    }
+  }
+}

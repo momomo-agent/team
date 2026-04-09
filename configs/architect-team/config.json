@@ -1,0 +1,24 @@
+{
+  "version": "6.0",
+  "description": "Architect sub-team — 读依赖 → 设计 → 验证 API 引用",
+  "workflow": {
+    "entry": "read-deps",
+    "context": {
+      "refsValid": "0",
+      "retryCount": "0"
+    },
+    "nodes": {
+      "read-deps": "nodes/read-deps.json",
+      "design": "nodes/design.json",
+      "validate-refs": "nodes/validate-refs.json",
+      "complete": "nodes/complete.json"
+    }
+  },
+  "agents": {
+    "architect": {
+      "prompt": "../../prompts/architect.md",
+      "model": "claude-sonnet-4",
+      "description": "设计系统架构"
+    }
+  }
+}

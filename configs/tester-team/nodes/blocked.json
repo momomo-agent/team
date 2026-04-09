@@ -1,0 +1,4 @@
+{
+  "type": "terminal",
+  "description": "测试失败，任务标记 blocked，错误日志在 .team/verify-errors/"
+}

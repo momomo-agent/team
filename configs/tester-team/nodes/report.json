@@ -1,0 +1,14 @@
+{
+  "type": "sequence",
+  "description": "Tester agent 写测试报告",
+  "steps": [
+    {
+      "id": "write-report",
+      "execute": {
+        "type": "agent",
+        "agent": "tester"
+      }
+    }
+  ],
+  "next": "complete"
+}
