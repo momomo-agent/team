@@ -2,7 +2,15 @@
   "name": "design-iteration",
   "description": "UI/UX 设计迭代流程：设计 → 开发 → 审核 → 循环",
   "version": "1.0.0",
-  "entry": "startup",
+  "workflow": {
+    "entry": "startup",
+    "context": {
+      "maxIterations": 20,
+      "gapThreshold": 20,
+      "iteration": "parseInt(fs.readFileSync('.team/iteration-count.txt', 'utf8') || '0')",
+      "gapScore": "JSON.parse(fs.readFileSync('.team/iterations/review-' + (iteration - 1) + '.json', 'utf8') || '{}').gapScore || 100"
+    }
+  },
   "agents": {
     "designer": {
       "role": "UI/UX Designer",
@@ -22,9 +30,5 @@
       "prompt": "prompts/reviewer.md",
       "capabilities": ["read", "screenshot", "evaluate"]
     }
-  },
-  "context": {
-    "maxIterations": 20,
-    "gapThreshold": 20
   }
 }
