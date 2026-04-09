@@ -86,7 +86,20 @@ function findArg(flag) {
 
 function init(dirName) {
   if (!dirName) {
-    console.error('Usage: team init <dir> ["goal description"]');
+    console.error('Usage: team init <dir> --goal "goal description" [--config workflow-name]');
+    process.exit(1);
+  }
+
+  // Extract --goal
+  const goalArg = process.argv.indexOf('--goal');
+  if (goalArg === -1) {
+    console.error('Error: --goal is required');
+    console.error('Usage: team init <dir> --goal "goal description" [--config workflow-name]');
+    process.exit(1);
+  }
+  const goal = process.argv[goalArg + 1];
+  if (!goal || goal.startsWith('--')) {
+    console.error('Error: --goal requires a value');
     process.exit(1);
   }
 
@@ -111,13 +124,9 @@ function init(dirName) {
     fs.mkdirSync(path.join(projectDir, dir), { recursive: true });
   }
 
-  // Determine workflow: --config explicit > LLM auto-select > dev-team fallback
+  // Determine workflow: --config explicit > LLM auto-select
   const configArg = process.argv.indexOf('--config');
   const explicitConfig = configArg !== -1 && process.argv[configArg + 1];
-
-  // Collect goal from remaining args (everything after dirName that's not a flag)
-  const goalParts = args.slice(1).filter(a => !a.startsWith('--') && args[args.indexOf(a) - 1] !== '--config');
-  const goal = goalParts.join(' ').trim();
 
   let workflowName;
   let config;
@@ -125,12 +134,9 @@ function init(dirName) {
   if (explicitConfig) {
     // Explicit --config: use directly
     workflowName = explicitConfig;
-  } else if (goal) {
-    // Have a goal: let LLM decide
-    workflowName = _autoSelectWorkflow(goal, projectDir);
   } else {
-    // No goal, no --config: default
-    workflowName = 'dev-team';
+    // No --config: let LLM decide based on goal
+    workflowName = _autoSelectWorkflow(goal, projectDir);
   }
 
   if (workflowName === '_auto') {
@@ -161,12 +167,10 @@ function init(dirName) {
     teamVersion: '2.0'
   });
 
-  // Set goal from user input
-  if (goal) {
-    config.goal = Object.assign({}, config.goal || {}, {
-      description: goal
-    });
-  }
+  // Set goal from user input (always present now)
+  config.goal = Object.assign({}, config.goal || {}, {
+    description: goal
+  });
 
   fs.writeFileSync(path.join(projectDir, '.team/config.json'), JSON.stringify(config, null, 2));
 
