@@ -1,0 +1,12 @@
+{
+  "type": "entry",
+  "description": "初始化设计迭代",
+  "execute": {
+    "type": "init",
+    "setup": [
+      "mkdir -p .team/iterations",
+      "echo 0 > .team/iteration-count.txt"
+    ]
+  },
+  "next": "design-loop"
+}

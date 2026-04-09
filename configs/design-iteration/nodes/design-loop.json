@@ -1,0 +1,39 @@
+{
+  "type": "sequence",
+  "description": "设计迭代循环：设计 → 开发 → 审核",
+  "steps": [
+    {
+      "id": "design",
+      "execute": { "type": "agent", "agent": "designer" },
+      "post": {
+        "write": ".team/iterations/design-{{iteration}}.md"
+      }
+    },
+    {
+      "id": "develop",
+      "execute": { "type": "agent", "agent": "developer" },
+      "post": {
+        "git": "commit -am 'design iteration {{iteration}}'"
+      }
+    },
+    {
+      "id": "review",
+      "execute": { "type": "agent", "agent": "reviewer" },
+      "post": {
+        "write": ".team/iterations/review-{{iteration}}.json"
+      }
+    },
+    {
+      "id": "increment",
+      "execute": {
+        "type": "script",
+        "command": "expr $(cat .team/iteration-count.txt) + 1 > .team/iteration-count.txt"
+      }
+    }
+  ],
+  "next": {
+    "if": "gapScore < 20 || iteration >= 5",
+    "then": "complete",
+    "else": "design-loop"
+  }
+}

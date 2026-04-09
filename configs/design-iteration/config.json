@@ -1,0 +1,30 @@
+{
+  "name": "design-iteration",
+  "description": "UI/UX 设计迭代流程：设计 → 开发 → 审核 → 循环",
+  "version": "1.0.0",
+  "entry": "startup",
+  "agents": {
+    "designer": {
+      "role": "UI/UX Designer",
+      "model": "claude-sonnet-4",
+      "prompt": "prompts/designer.md",
+      "capabilities": ["read", "write_design"]
+    },
+    "developer": {
+      "role": "Frontend Developer",
+      "model": "claude-sonnet-4",
+      "prompt": "prompts/developer.md",
+      "capabilities": ["read", "write_code", "git"]
+    },
+    "reviewer": {
+      "role": "Design Reviewer",
+      "model": "claude-opus-4",
+      "prompt": "prompts/reviewer.md",
+      "capabilities": ["read", "screenshot", "evaluate"]
+    }
+  },
+  "context": {
+    "maxIterations": 5,
+    "gapThreshold": 20
+  }
+}
