@@ -1,4 +1,13 @@
 {
-  "type": "terminal",
-  "description": "设计迭代完成"
+  "type": "sequence",
+  "description": "设计迭代完成",
+  "steps": [
+    {
+      "id": "summary",
+      "execute": {
+        "type": "shell",
+        "command": "echo 'Design iteration complete' > .team/completion.txt"
+      }
+    }
+  ]
 }

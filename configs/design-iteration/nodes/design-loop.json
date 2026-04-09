@@ -26,7 +26,7 @@
     {
       "id": "increment",
       "execute": {
-        "type": "script",
+        "type": "shell",
         "command": "expr $(cat .team/iteration-count.txt) + 1 > .team/iteration-count.txt"
       }
     }

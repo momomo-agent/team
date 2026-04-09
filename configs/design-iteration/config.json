@@ -6,9 +6,7 @@
     "entry": "startup",
     "context": {
       "maxIterations": 20,
-      "gapThreshold": 20,
-      "iteration": "parseInt(fs.readFileSync('.team/iteration-count.txt', 'utf8') || '0')",
-      "gapScore": "JSON.parse(fs.readFileSync('.team/iterations/review-' + (iteration - 1) + '.json', 'utf8') || '{}').gapScore || 100"
+      "gapThreshold": 20
     }
   },
   "agents": {
