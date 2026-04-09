@@ -1,6 +1,6 @@
 {
   "type": "sequence",
-  "description": "开发循环：设计 → 开发 → 测试",
+  "description": "开发循环：设计 → 开发 → 验证 → 测试 → 验证",
   "steps": [
     {
       "id": "tech-lead-plan",
@@ -17,6 +17,15 @@
       }
     },
     {
+      "id": "verify-build",
+      "description": "编译验证",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js build",
+        "timeout": 120000
+      }
+    },
+    {
       "id": "test",
       "when": "reviewCount > 0",
       "execute": { "type": "agent", "agent": "tester" },
@@ -24,6 +33,15 @@
         "tasks_in": "review",
         "success_status": "done",
         "on_fail_signal": { "contains": "fail", "status": "blocked" }
+      }
+    },
+    {
+      "id": "verify-test",
+      "description": "测试验证",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js test",
+        "timeout": 180000
       }
     },
     {

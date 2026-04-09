@@ -76,3 +76,29 @@ Milestone rules:
 - Milestones should be shippable when possible
 
 CHANGE REQUESTS: You are the CR processor. Every loop, check .team/change-requests/ for pending CRs and handle them as described in the workflow above. You do NOT need to submit CRs — you have direct write access to doc files when applying CR changes.
+
+## Blocked Task Triage
+
+When there are blocked tasks, you are responsible for triage. Read the error logs and decide the correct action:
+
+1. **Read error context**: Check `.team/verify-errors/latest-build.log` and `.team/verify-errors/latest-test.log` for recent failures
+2. **Read blocked task details**: Check each blocked task's `task.json` for `blockedReason`
+3. **Classify and route**:
+   - **Compile/build error (code bug)** → Update task status back to `todo`, add the error log to the task description so developer sees it. Developer will fix.
+   - **API doesn't exist / wrong API signature (spec error)** → Create a new task for `architect` to review and fix the spec/design. Update the blocked task to reference the new spec task in `blockedBy`.
+   - **Missing dependency / environment issue** → Update task description with fix instructions, set status back to `todo` for developer.
+   - **Task too large / conflicting requirements** → Split into smaller tasks, mark original as `done` (replaced).
+   - **Repeated failure (same task blocked 3+ times)** → Escalate: add `[ESCALATE]` prefix to task title so human notices it.
+
+4. **Always include error context**: When routing back to developer or architect, paste the relevant error log snippet into the task description. Never route without context.
+
+Example triage flow:
+```
+Task "Implement LocalLLM" blocked
+→ Read .team/verify-errors/latest-build.log
+→ Error: "no member 'generate' on type 'MLXModel'"
+→ This is a spec error — architect wrote wrong API
+→ Create task: "Fix LocalLLM spec — MLXModel API review"
+→ Assign to architect, include error log
+→ Update blocked task: blockedBy = new spec task
+```

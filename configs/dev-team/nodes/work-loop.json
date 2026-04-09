@@ -55,28 +55,6 @@
           }
         },
         {
-          "id": "run-tests",
-          "when": "reviewCount > 0 || testingCount > 0",
-          "demand": "reviewCount + testingCount",
-          "execute": {
-            "type": "agent",
-            "agent": "tester",
-            "parallel": 2
-          },
-          "post": {
-            "tasks_in": "testing",
-            "success_status": "done",
-            "evidence": "test-result.md",
-            "on_fail_signal": {
-              "contains": "fail",
-              "not_contains": "0 fail",
-              "status": "blocked"
-            },
-            "on_no_evidence": "review",
-            "on_empty_evidence": "review"
-          }
-        },
-        {
           "id": "update-architecture",
           "when": "archTaskCount > 0",
           "demand": "archTaskCount",
@@ -86,6 +64,55 @@
           }
         }
       ]
+    },
+    {
+      "id": "verify-build",
+      "description": "编译验证 — developer 完成后自动跑 build，失败写错误日志",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js build",
+        "timeout": 120000
+      }
+    },
+    {
+      "id": "run-tests",
+      "when": "reviewCount > 0 || testingCount > 0",
+      "demand": "reviewCount + testingCount",
+      "execute": {
+        "type": "agent",
+        "agent": "tester",
+        "parallel": 2
+      },
+      "post": {
+        "tasks_in": "testing",
+        "success_status": "done",
+        "evidence": "test-result.md",
+        "on_fail_signal": {
+          "contains": "fail",
+          "not_contains": "0 fail",
+          "status": "blocked"
+        },
+        "on_no_evidence": "review",
+        "on_empty_evidence": "review"
+      }
+    },
+    {
+      "id": "verify-test",
+      "description": "测试验证 — tester 完成后自动跑 test suite，失败写错误日志",
+      "execute": {
+        "type": "shell",
+        "command": "node /Users/kenefe/LOCAL/momo-agent/tools/team/scripts/verify.js test",
+        "timeout": 180000
+      }
+    },
+    {
+      "id": "triage-blocked",
+      "description": "PM 处理 blocked 任务 — 分析错误日志，决定向上(architect)还是向下(developer)",
+      "when": "blockedCount > 0",
+      "execute": {
+        "type": "agent",
+        "agent": "pm"
+      }
     }
   ],
   "exit": {

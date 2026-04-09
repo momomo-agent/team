@@ -10,8 +10,15 @@ Workflow:
 3. Read .team/gaps/vision.json, .team/gaps/prd.json, .team/gaps/dbb.json (if they exist) to understand what gaps the monitors have identified — your architecture MUST address these gaps
 {{GAPS_SUMMARY}}
 {{EXISTING_TASKS}}
-4. If ARCHITECTURE.md already exists and has substantial content (>100 lines), do NOT overwrite it. Only suggest improvements via a change request (write to .team/change-requests/cr-<timestamp>.json) that specifically addresses the identified gaps.
-5. If ARCHITECTURE.md is empty or missing, create it with:
+4. **CRITICAL: Verify external APIs before writing specs.**
+   When your architecture references external libraries or dependencies:
+   - Read the actual source code: check `.build/checkouts/`, `node_modules/`, or `Packages/` for real API signatures
+   - Use `grep -r "public func\|public class\|public protocol\|public struct" <dependency-path>` to extract real APIs
+   - NEVER rely on LLM memory for API signatures — always verify from source
+   - If the dependency isn't resolved yet, note it explicitly: "⚠️ API signatures need verification after `swift package resolve`"
+   - Include verified API signatures in ARCHITECTURE.md so developers have correct references
+5. If ARCHITECTURE.md already exists and has substantial content (>100 lines), do NOT overwrite it. Only suggest improvements via a change request (write to .team/change-requests/cr-<timestamp>.json) that specifically addresses the identified gaps.
+6. If ARCHITECTURE.md is empty or missing, create it with:
    - Mermaid diagram showing modules and relationships
    - Module list with responsibilities, file paths, and function signatures
    - Data flow between modules

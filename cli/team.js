@@ -198,11 +198,86 @@ function init(dirName) {
     });
   }
 
+  // Auto-detect and generate verify.json (project-level, shared across all teams)
+  const verifyPath = path.join(projectDir, '.team/verify.json');
+  if (!fs.existsSync(verifyPath)) {
+    const verify = _detectVerifyConfig(projectDir);
+    fs.writeFileSync(verifyPath, JSON.stringify(verify, null, 2));
+    if (verify.build || verify.test) {
+      console.log(`  Verify: auto-detected (build: ${verify.build || 'none'}, test: ${verify.test || 'none'})`);
+    }
+  }
+
+  // Create verify-errors directory
+  fs.mkdirSync(path.join(projectDir, '.team/verify-errors'), { recursive: true });
+
   console.log(`Project initialized: ${projectDir}`);
   console.log(`  Workflow: ${workflowName}`);
   if (goal) console.log(`  Goal: ${goal}`);
   console.log(`  cd ${dirName}`);
   console.log(`  team start`);
+}
+
+/**
+ * Auto-detect project type and generate verify config.
+ * Returns { build, test, e2e, maxRetries } — empty strings for undetected.
+ */
+function _detectVerifyConfig(projectDir) {
+  const verify = { build: '', test: '', e2e: '', maxRetries: 3 };
+
+  // Swift / SPM
+  if (fs.existsSync(path.join(projectDir, 'Package.swift'))) {
+    verify.build = 'swift build 2>&1';
+    verify.test = 'swift test 2>&1';
+    return verify;
+  }
+
+  // Node.js
+  if (fs.existsSync(path.join(projectDir, 'package.json'))) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(projectDir, 'package.json'), 'utf8'));
+      const scripts = pkg.scripts || {};
+      if (scripts.build) verify.build = 'npm run build 2>&1';
+      if (scripts.test) verify.test = 'npm test 2>&1';
+      if (scripts.e2e) verify.e2e = 'npm run e2e 2>&1';
+      // TypeScript check
+      if (fs.existsSync(path.join(projectDir, 'tsconfig.json')) && !scripts.build) {
+        verify.build = 'npx tsc --noEmit 2>&1';
+      }
+    } catch {}
+    return verify;
+  }
+
+  // Rust / Cargo
+  if (fs.existsSync(path.join(projectDir, 'Cargo.toml'))) {
+    verify.build = 'cargo build 2>&1';
+    verify.test = 'cargo test 2>&1';
+    return verify;
+  }
+
+  // Python
+  if (fs.existsSync(path.join(projectDir, 'pyproject.toml')) || fs.existsSync(path.join(projectDir, 'setup.py'))) {
+    verify.test = 'python -m pytest 2>&1';
+    return verify;
+  }
+
+  // Go
+  if (fs.existsSync(path.join(projectDir, 'go.mod'))) {
+    verify.build = 'go build ./... 2>&1';
+    verify.test = 'go test ./... 2>&1';
+    return verify;
+  }
+
+  // Makefile
+  if (fs.existsSync(path.join(projectDir, 'Makefile'))) {
+    verify.build = 'make 2>&1';
+    if (fs.readFileSync(path.join(projectDir, 'Makefile'), 'utf8').includes('test:')) {
+      verify.test = 'make test 2>&1';
+    }
+    return verify;
+  }
+
+  return verify;
 }
 
 /**
