@@ -23,14 +23,16 @@ Team CLI 位于 `~/LOCAL/momo-agent/tools/team/`
 ```bash
 cd <project-dir>
 
-# 开发团队（完整流程：PM + architect + tech_lead + dev + tester）
-team init . --config dev-team
+# 必须提供 --goal（语义目标）
+team init . --goal "Vision ≥90% + PRD ≥90%" --config dev-team
 
-# 轻量开发（简化流程：tech_lead + dev + tester）
-team init . --config dev-lite
+# 如果不提供 --config，会根据 goal 自动选择 workflow
+team init . --goal "优化 UI 设计到 Notion 级别"
 
-# UI 设计迭代（设计 → 开发 → 审核 → 循环）
-team init . --config design-iteration
+# 可用的 workflows：
+# - dev-team: 完整开发流程（PM + architect + tech_lead + dev + tester）
+# - dev-lite: 轻量开发流程（tech_lead + dev + tester）
+# - design-iteration: UI 设计迭代（designer → developer → reviewer → 循环）
 ```
 
 ### 2. 启动 daemon
@@ -122,12 +124,29 @@ team status dev-team
 **角色**：designer + developer + reviewer
 
 **流程**：
-1. startup → 初始化
-2. design-loop → designer 提设计方案 → developer 实现 → reviewer 评审
-3. 循环条件：gapScore < 20 或 iteration ≥ 5 时停止
+1. startup → 初始化（创建 iterations/ 目录）
+2. design-loop → 循环迭代：
+   - designer 分析当前 UI，生成设计提案（design-N.md）
+   - developer 实现设计改动并 commit
+   - reviewer 评审打分（review-N.json，包含 gapScore）
+   - check-completion 检查终止条件
+3. 终止条件：gapScore < 20 或 iteration ≥ 20
 4. complete → 设计达标自动停止
 
 **适用**：UI/UX 优化，视觉迭代
+
+**输出**：
+- `.team/iterations/design-N.md` — 设计提案
+- `.team/iterations/review-N.json` — 评审结果（包含 gapScore）
+- Git commits — 每轮迭代的代码改动
+
+**示例**：
+```bash
+cd ~/projects/my-app
+team init . --goal "UI 达到 Notion 级别的设计质量" --config design-iteration
+team start
+# 自动循环：设计 → 开发 → 审核，直到 gapScore < 20
+```
 
 ## Custom Workflows
 
@@ -225,11 +244,13 @@ node ~/LOCAL/momo-agent/tools/team/scripts/watchdog.js --interval=300
 
 ## Tips
 
-1. **目标要明确** — goal 写清楚终止条件（Vision ≥90% + PRD ≥90%）
-2. **workflow 要简单** — 角色不要太多，流程不要太复杂
-3. **用 dev-lite 快速验证** — 大项目前先用 lite 跑通流程
-4. **多 team 隔离** — dev-team 和 ui-design 分开，互不干扰
-5. **定期 overview** — `team overview` 看所有项目健康度
+1. **--goal 必填** — `team init` 必须提供 `--goal`，描述语义目标（如"Vision ≥90%"或"UI 达到 Notion 级别"）
+2. **自动选择 workflow** — 不提供 `--config` 时，LLM 会根据 goal 自动选择最合适的 workflow
+3. **workflow 要简单** — 角色不要太多，流程不要太复杂
+4. **用 dev-lite 快速验证** — 大项目前先用 lite 跑通流程
+5. **多 team 隔离** — dev-team 和 ui-design 分开，互不干扰
+6. **定期 overview** — `team overview` 看所有项目健康度
+7. **design-iteration 自动终止** — gapScore < 20 或 20 轮后自动停止，不需要手动干预
 
 ## Troubleshooting
 
