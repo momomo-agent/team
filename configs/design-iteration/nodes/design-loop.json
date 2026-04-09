@@ -1,6 +1,6 @@
 {
   "type": "sequence",
-  "description": "设计迭代循环：设计 → 开发 → 审核",
+  "description": "设计迭代循环：设计 → 开发 → 审核 → 检查是否达标",
   "steps": [
     {
       "id": "design",
@@ -24,21 +24,24 @@
       }
     },
     {
-      "id": "increment",
-      "execute": {
-        "type": "shell",
-        "command": "expr $(cat .team/iteration-count.txt) + 1 > .team/iteration-count.txt"
-      }
-    },
-    {
       "id": "check-completion",
       "execute": {
         "type": "shell",
-        "command": "ITER=$(cat .team/iteration-count.txt); GAP=$(node -pe \"JSON.parse(require('fs').readFileSync('.team/iterations/review-${ITER}.json','utf8')).gapScore||100\"); test \"$GAP\" -lt 20 -o \"$ITER\" -ge 20"
+        "command": "ITER=$(cat .team/iteration-count.txt 2>/dev/null || echo 1); REVIEW=\".team/iterations/review-${ITER}.json\"; if [ -f \"$REVIEW\" ]; then REC=$(node -pe \"JSON.parse(require('fs').readFileSync('$REVIEW','utf8')).recommendation||'continue'\"); GAP=$(node -pe \"JSON.parse(require('fs').readFileSync('$REVIEW','utf8')).gapScore||100\"); if [ \"$REC\" = 'complete' ] || [ \"$GAP\" -lt 20 ]; then exit 0; else exit 1; fi; else exit 1; fi"
       },
       "next": {
         "success": "complete",
-        "failure": "design-loop"
+        "failure": "increment"
+      }
+    },
+    {
+      "id": "increment",
+      "execute": {
+        "type": "shell",
+        "command": "ITER=$(cat .team/iteration-count.txt 2>/dev/null || echo 1); echo $((ITER + 1)) > .team/iteration-count.txt"
+      },
+      "next": {
+        "success": "design-loop"
       }
     }
   ]
