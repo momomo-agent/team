@@ -24,7 +24,7 @@
     }
   },
   "context": {
-    "maxIterations": 5,
+    "maxIterations": 20,
     "gapThreshold": 20
   }
 }

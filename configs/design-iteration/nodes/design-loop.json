@@ -32,7 +32,7 @@
     }
   ],
   "next": {
-    "if": "gapScore < 20 || iteration >= 5",
+    "if": "gapScore < 20 || iteration >= 20",
     "then": "complete",
     "else": "design-loop"
   }

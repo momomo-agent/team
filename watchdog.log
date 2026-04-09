@@ -1,2 +1,27 @@
 Watchdog started (pid: 14938, interval: 300s)
 Watchdog started (pid: 15214, interval: 300s)
+[2026-04-09 01:16:26] Restarted watson (new pid: 38007)
+/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:61
+  fs.writeFileSync(pidPath, daemon.pid.toString());
+                                       ^
+
+TypeError: Cannot read properties of undefined (reading 'toString')
+    at restartDaemon (/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:61:40)
+    at Timeout.check [as _onTimeout] (/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:70:19)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v25.4.0
+Watchdog started (pid: 38132, interval: 300s)
+/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:61
+  fs.writeFileSync(pidPath, daemon.pid.toString());
+                                       ^
+
+TypeError: Cannot read properties of undefined (reading 'toString')
+    at restartDaemon (/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:61:40)
+    at Timeout.check [as _onTimeout] (/Users/kenefe/LOCAL/momo-agent/tools/team/scripts/watchdog.js:70:19)
+    at listOnTimeout (node:internal/timers:605:17)
+    at process.processTimers (node:internal/timers:541:7)
+
+Node.js v25.4.0
+Watchdog started (pid: 39109, interval: 300s)
